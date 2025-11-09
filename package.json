@@ -1,18 +1,17 @@
 {
   "name": "cosmic-foundry-bot",
   "version": "1.0.0",
-  "description": "Telegram reward-based mining game (Crystals)",
+  "description": "A Telegram mining and rewards game bot — Cosmic Foundry",
   "main": "bot/index.js",
+  "type": "module",
   "scripts": {
-    "start": "node bot/index.js",
-    "web": "node web/claim.js"
+    "start": "node bot/index.js"
   },
   "dependencies": {
+    "dotenv": "^16.3.1",
+    "express": "^4.19.2",
     "node-telegram-bot-api": "^0.61.0",
-    "sqlite3": "^5.1.6",
-    "express": "^4.18.2"
-  },
-  "engines": {
-    "node": ">=18"
+    "sqlite": "^5.1.6",
+    "sqlite3": "^5.1.6"
   }
 }
