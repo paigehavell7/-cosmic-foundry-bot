@@ -1,0 +1,15 @@
+{
+  "name": "cosmic-foundry-bot",
+  "version": "1.0.0",
+  "description": "Cosmic Foundry Telegram bot",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "dotenv": "^16.3.1",
+    "sqlite3": "^5.1.6"
+  }
+}
