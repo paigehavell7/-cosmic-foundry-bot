@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A Telegram mining and rewards game bot",
   "main": "bot/index.js",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "start": "node bot/index.js"
   },
