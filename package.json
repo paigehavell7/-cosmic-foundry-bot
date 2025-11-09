@@ -12,6 +12,5 @@
     "express": "^4.19.2",
     "node-telegram-bot-api": "^0.61.0",
     "sqlite": "^5.1.6",
-    "sqlite3": "^5.1.6"
   }
 }
