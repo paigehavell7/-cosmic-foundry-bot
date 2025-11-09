@@ -1,0 +1,41 @@
+import TelegramBot from "node-telegram-bot-api";
+import dotenv from "dotenv";
+import { handleClaim, getLeaderboard } from "../lib/game.js";
+
+dotenv.config();
+
+const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+
+// 🪐 /start command
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username || msg.from.first_name;
+  bot.sendMessage(
+    chatId,
+    `🌌 Welcome to *Cosmic Foundry*, ${username}!\n\nMine cosmic shards, climb the leaderboard, and become the richest explorer! 💎\n\nType /mine to start mining.`
+  );
+});
+
+// 💎 /mine command
+bot.onText(/\/mine/, async (msg) => {
+  const chatId = msg.chat.id;
+  const username = msg.from.username || msg.from.first_name;
+  const result = await handleClaim(chatId, username);
+  bot.sendMessage(chatId, result);
+});
+
+// 🌟 /leaderboard command
+bot.onText(/\/leaderboard/, async (msg) => {
+  const chatId = msg.chat.id;
+  const leaderboard = await getLeaderboard();
+  bot.sendMessage(chatId, `🏆 *Top Explorers:*\n\n${leaderboard}`, { parse_mode: "Markdown" });
+});
+
+// 🛑 Fallback message
+bot.on("message", (msg) => {
+  if (!msg.text.startsWith("/")) {
+    bot.sendMessage(msg.chat.id, "Try /mine or /leaderboard 🌠");
+  }
+});
+
+console.log("🚀 Cosmic Foundry Bot is running...");
