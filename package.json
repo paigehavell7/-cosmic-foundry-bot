@@ -1,7 +1,7 @@
 {
   "name": "cosmic-foundry-bot",
   "version": "1.0.0",
-  "description": "A Telegram mining and rewards game bot — Cosmic Foundry",
+  "description": "A Telegram mining and rewards game bot",
   "main": "bot/index.js",
   "type": "module",
   "scripts": {
@@ -11,6 +11,6 @@
     "dotenv": "^16.3.1",
     "express": "^4.19.2",
     "node-telegram-bot-api": "^0.61.0",
-    "sqlite": "^5.1.6",
+    "sqlite": "^5.1.6"
   }
 }
