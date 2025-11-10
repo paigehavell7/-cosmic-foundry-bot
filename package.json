@@ -1,16 +1,14 @@
 {
   "name": "cosmic-foundry-bot",
   "version": "1.0.0",
-  "description": "Cosmic Foundry Telegram bot",
+  "description": "Telegram bot for Cosmic Foundry game",
   "main": "index.js",
-  "type": "module",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "telegraf": "^4.16.3",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "sqlite3": "^5.1.6"
+    "telegraf": "^4.15.0",
+    "dotenv": "^16.3.1"
   }
 }
