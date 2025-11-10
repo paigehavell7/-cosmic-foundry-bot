@@ -1,9 +1,9 @@
-import { Telegraf } from "telegraf";
-import dotenv from "dotenv";
-import { initDB } from "./db.js";
-import { handleClaim } from "./claim.js";
-import { handleGame } from "./game.js";
-import { handleVoucher } from "./voucher.js";
+const { Telegraf } = require("telegraf");
+const dotenv = require("dotenv");
+const { initDB } = require("./db.js");
+const { handleClaim } = require("./claim.js");
+const { handleGame } = require("./game.js");
+const { handleVoucher } = require("./voucher.js");
 
 dotenv.config();
 
