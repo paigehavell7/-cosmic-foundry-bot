@@ -1,8 +1,6 @@
 // Load required packages
 const { Telegraf } = require("telegraf");
 const dotenv = require("dotenv");
-const { Telegraf } = require("telegraf");
-const dotenv = require("dotenv");
 const { initDB } = require("./db.js");
 
 // Load environment variables
