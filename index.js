@@ -1,7 +1,7 @@
 // Load required packages
 const { Telegraf } = require("telegraf");
 const dotenv = require("dotenv");
-const { initDB } = require("./db.js");
+const { initDB, openDB } = require("./db.js");
 
 // Load environment variables
 dotenv.config();
@@ -23,8 +23,56 @@ You can earn rewards and play mini-games right here.
 - /voucher — Redeem a voucher`);
 });// Start command
 // --- Command Handlers ---
-function handleClaim(ctx) {
-  ctx.reply("You have claimed your daily reward! 🌟");
+async function handleClaim(ctx) {
+  try {
+    const db = openDB();
+    const userId = ctx.from.id;
+    const username = ctx.from.username || "Player";
+    const today = new Date().toISOString().split("T")[0];
+
+    // Check if user already claimed today
+    db.get("SELECT last_claim FROM users WHERE telegram_id = ?", [userId], (err, row) => {
+      if (row && row.last_claim === today) {
+        ctx.reply("🌞 You already claimed your daily reward today! Come back tomorrow.");
+        db.close();
+        return;
+      }
+
+      const rewardPoints = 10;
+
+      // Insert or update user data
+      db.run(
+        `
+        INSERT INTO users (telegram_id, username, points, last_claim)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(telegram_id) DO UPDATE SET
+          points = points + ?,
+          last_claim = ?
+        `,
+        [userId, username, rewardPoints, today, rewardPoints, today],
+        (err) => {
+          if (err) {
+            console.error(err);
+            ctx.reply("⚠️ Error saving your reward.");
+          } else {
+            db.get(
+              "SELECT points FROM users WHERE telegram_id = ?",
+              [userId],
+              (err, user) => {
+                if (user) {
+                  ctx.reply(`🎁 You claimed ${rewardPoints} points! You now have ${user.points} total points.`);
+                }
+              }
+            );
+          }
+          db.close();
+        }
+      );
+    });
+  } catch (error) {
+    console.error("Error in handleClaim:", error);
+    ctx.reply("⚠️ There was an error claiming your reward. Please try again later.");
+  }
 }
 
 function handleGame(ctx) {
