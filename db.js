@@ -11,7 +11,12 @@ function initDB() {
         telegram_id TEXT UNIQUE,
         username TEXT,
         points INTEGER DEFAULT 100,
+        health INTEGER DEFAULT 100,
+        fuel INTEGER DEFAULT 100,
+        planet TEXT DEFAULT 'Elaris Prime',
         last_claim TEXT
+      )
+    `);
       )
     `);
   });
