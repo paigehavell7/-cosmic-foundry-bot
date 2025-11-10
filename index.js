@@ -1,10 +1,9 @@
 // Load required packages
 const { Telegraf } = require("telegraf");
 const dotenv = require("dotenv");
+const { Telegraf } = require("telegraf");
+const dotenv = require("dotenv");
 const { initDB } = require("./db.js");
-const { handleClaim } = require("./claim.js");
-const { handleGame } = require("./game.js");
-const { handleVoucher } = require("./voucher.js");
 
 // Load environment variables
 dotenv.config();
