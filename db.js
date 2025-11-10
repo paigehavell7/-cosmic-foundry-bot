@@ -9,6 +9,7 @@ function initDB() {
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         telegram_id TEXT UNIQUE,
+        username TEXT,
         points INTEGER DEFAULT 100,
         last_claim TEXT
       )
@@ -19,4 +20,8 @@ function initDB() {
   db.close();
 }
 
-module.exports = { initDB };
+function openDB() {
+  return new sqlite3.Database("./database.db");
+}
+
+module.exports = { initDB, openDB };
