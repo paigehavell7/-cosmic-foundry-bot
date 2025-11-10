@@ -1,96 +1,132 @@
-// Load required packages
-const { Telegraf } = require("telegraf");
-const dotenv = require("dotenv");
-const { initDB, openDB } = require("./db.js");
+// Cosmic Foundry Bot — Adventure Edition
 
-// Load environment variables
+import dotenv from "dotenv";
+import { Telegraf } from "telegraf";
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
+
 dotenv.config();
 
-// Create a new Telegram bot instance
+// Initialize the bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// Initialize the database
-initDB();
+// --- Database Setup ---
+let db;
+(async () => {
+  db = await open({
+    filename: "./cosmic_foundry.db",
+    driver: sqlite3.Database,
+  });
 
-// Start command
-bot.start((ctx) => {
-  ctx.reply(`🌌 Welcome to Cosmic Foundry, ${ctx.from.first_name}!
-You can earn rewards and play mini-games right here.
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      telegram_id TEXT PRIMARY KEY,
+      username TEXT,
+      points INTEGER DEFAULT 0,
+      planet TEXT DEFAULT 'Nova Prime',
+      battles INTEGER DEFAULT 0
+    )
+  `);
+})();
 
-✨ Commands:
-- /claim — Claim your daily reward
-- /game — Play the cosmic game
-- /voucher — Redeem a voucher`);
-});// Start command
-// --- Command Handlers ---
+// --- Helper Functions ---
+async function getUser(ctx) {
+  const id = ctx.from.id.toString();
+  const username = ctx.from.username || "Traveler";
+
+  let user = await db.get("SELECT * FROM users WHERE telegram_id = ?", [id]);
+  if (!user) {
+    await db.run(
+      "INSERT INTO users (telegram_id, username) VALUES (?, ?)",
+      [id, username]
+    );
+    user = await db.get("SELECT * FROM users WHERE telegram_id = ?", [id]);
+  }
+  return user;
+}
+
+// --- Core Game Commands ---
 async function handleClaim(ctx) {
   try {
-    const db = openDB();
-    const userId = ctx.from.id;
-    const username = ctx.from.username || "Player";
-    const today = new Date().toISOString().split("T")[0];
+    const user = await getUser(ctx);
+    const rewardPoints = Math.floor(Math.random() * 20) + 5;
 
-    // Check if user already claimed today
-    db.get("SELECT last_claim FROM users WHERE telegram_id = ?", [userId], (err, row) => {
-      if (row && row.last_claim === today) {
-        ctx.reply("🌞 You already claimed your daily reward today! Come back tomorrow.");
-        db.close();
-        return;
-      }
+    await db.run(
+      "UPDATE users SET points = points + ? WHERE telegram_id = ?",
+      [rewardPoints, user.telegram_id]
+    );
 
-      const rewardPoints = 10;
-
-      // Insert or update user data
-      db.run(
-        `
-        INSERT INTO users (telegram_id, username, points, last_claim)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(telegram_id) DO UPDATE SET
-          points = points + ?,
-          last_claim = ?
-        `,
-        [userId, username, rewardPoints, today, rewardPoints, today],
-        (err) => {
-          if (err) {
-            console.error(err);
-            ctx.reply("⚠️ Error saving your reward.");
-          } else {
-            db.get(
-              "SELECT points FROM users WHERE telegram_id = ?",
-              [userId],
-              (err, user) => {
-                if (user) {
-                  ctx.reply(`🎁 You claimed ${rewardPoints} points! You now have ${user.points} total points.`);
-                }
-              }
-            );
-          }
-          db.close();
-        }
-      );
-    });
+    ctx.reply(`🎁 You’ve claimed ${rewardPoints} credits, ${user.username}!`);
   } catch (error) {
-    console.error("Error in handleClaim:", error);
-    ctx.reply("⚠️ There was an error claiming your reward. Please try again later.");
+    console.error("Error in /claim:", error);
+    ctx.reply("⚠️ There was an error claiming your reward.");
   }
 }
 
 function handleGame(ctx) {
-  ctx.reply("Launching the Cosmic Foundry game... 🚀");
+  ctx.reply(
+    "🚀 Welcome to *Cosmic Foundry: Exodus Beyond*! Your home world was destroyed. Travel through the stars, gather resources, and find a new home planet. Type /travel to begin your journey!",
+    { parse_mode: "Markdown" }
+  );
 }
 
 function handleVoucher(ctx) {
-  ctx.reply("Here is your voucher code: CF-2025-REWARD 🎁");
+  ctx.reply("🎫 Here is your voucher code: CF-2025-REWARD");
 }
 
-// Now these functions exist when called below 👇
+// --- New Adventure Commands ---
+bot.command("status", async (ctx) => {
+  const user = await getUser(ctx);
+  ctx.reply(
+    `🛰 *Status Report for ${user.username}:*\n\n🌍 Planet: ${user.planet}\n💰 Points: ${user.points}\n⚔️ Battles Won: ${user.battles}`,
+    { parse_mode: "Markdown" }
+  );
+});
+
+bot.command("travel", async (ctx) => {
+  const user = await getUser(ctx);
+  const planets = [
+    "Zypheron IV",
+    "Eclipsera",
+    "Orion’s Gate",
+    "Tavros-9",
+    "Aetheria Prime",
+  ];
+  const newPlanet = planets[Math.floor(Math.random() * planets.length)];
+
+  await db.run("UPDATE users SET planet = ? WHERE telegram_id = ?", [
+    newPlanet,
+    user.telegram_id,
+  ]);
+
+  ctx.reply(`🌌 You travel through hyperspace and arrive at *${newPlanet}*!`, {
+    parse_mode: "Markdown",
+  });
+});
+
+bot.command("fight", async (ctx) => {
+  const user = await getUser(ctx);
+  const won = Math.random() > 0.5;
+
+  if (won) {
+    await db.run(
+      "UPDATE users SET battles = battles + 1, points = points + 10 WHERE telegram_id = ?",
+      [user.telegram_id]
+    );
+    ctx.reply("⚔️ You fought bravely and defeated the alien attackers! +10 credits!");
+  } else {
+    ctx.reply("💀 The aliens were too strong this time. You retreat to safety.");
+  }
+});
+
+// --- Core Commands ---
 bot.command("claim", handleClaim);
 bot.command("game", handleGame);
 bot.command("voucher", handleVoucher);
 
-
-// Launch the bot
+// --- Launch & Shutdown ---
 bot.launch();
+console.log("🪐 Cosmic Foundry Bot is live!");
 
 // Graceful shutdown (important for Railway)
 process.once("SIGINT", () => bot.stop("SIGINT"));
