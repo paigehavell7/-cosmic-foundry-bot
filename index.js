@@ -1,5 +1,4 @@
 // Cosmic Foundry Bot – Adventure Edition
-// A Telegram RPG where players explore galaxies, fight aliens, and find a new home planet.
 
 import dotenv from "dotenv";
 import { Telegraf } from "telegraf";
@@ -7,55 +6,49 @@ import { initDB, getUser, addPoints, setPlanet, recordBattle } from "./db.js";
 
 dotenv.config();
 
-// --- Initialize Bot ---
+// --- Initialize the bot ---
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-// --- Initialize Database ---
+// --- Initialize the database ---
 await initDB();
 
-
-// --- Core Game Commands ---
-
-// 🌍 /start — Welcome message
+// --- /start command ---
 bot.start(async (ctx) => {
-  const username = ctx.from.username || "Traveler";
-  await ctx.reply(`🚀 Welcome, ${username}!  
-Your home planet was destroyed. You must explore the galaxy to find a new home and survive alien encounters!
-
-Use:
-/explore – travel to a new planet  
-/claim – earn cosmic points  
-/status – check your stats  
-/battle – fight alien invaders`);
+  const user = await getUser(ctx);
+  await ctx.reply(
+    `🌌 Welcome, *${user.username}*!  
+Your home world has been destroyed...  
+You must travel across the stars to find a new home! 🌠  
+Use /explore to begin your journey or /battle to fight alien raiders.`,
+    { parse_mode: "Markdown" }
+  );
 });
 
-
-// 🪐 /explore — Travel to a new planet
+// --- /explore command ---
 bot.command("explore", async (ctx) => {
-  const planets = ["Nova Prime", "Eclipsera", "Zypheron", "Krynn", "Velara", "Aetherion"];
-  const newPlanet = planets[Math.floor(Math.random() * planets.length)];
   const user = await getUser(ctx);
-  await setPlanet(user.telegram_id, newPlanet);
+  const planets = [
+    "Zephyra Prime",
+    "Nexora IX",
+    "Eldara",
+    "Vortanis",
+    "Auralis",
+    "Cryon Delta",
+  ];
+  const discovered = planets[Math.floor(Math.random() * planets.length)];
 
-  await ctx.reply(`🪐 You’ve arrived on planet *${newPlanet}*!  
-Scanning atmosphere... breathable ✅  
-Resources detected 💎  
-Stay alert for alien lifeforms 👽`);
-});
-
-
-// 💰 /claim — Earn points for progress
-bot.command("claim", async (ctx) => {
-  const user = await getUser(ctx);
-  const reward = Math.floor(Math.random() * 50) + 10;
+  const reward = Math.floor(Math.random() * 50) + 20;
   await addPoints(user.telegram_id, reward);
+  await setPlanet(user.telegram_id, discovered);
 
-  await ctx.reply(`✨ You earned ${reward} cosmic points for your discoveries!  
-Keep exploring to find rare artifacts.`);
+  await ctx.reply(
+    `🪐 You discovered *${discovered}*!  
+✨ You earned ${reward} Cosmic Points for exploring!`,
+    { parse_mode: "Markdown" }
+  );
 });
 
-
-// ⚔️ /battle — Fight aliens
+// --- /battle command ---
 bot.command("battle", async (ctx) => {
   const user = await getUser(ctx);
   const outcome = Math.random();
@@ -69,22 +62,36 @@ bot.command("battle", async (ctx) => {
     const reward = Math.floor(Math.random() * 60) + 20;
     await addPoints(user.telegram_id, reward);
     await recordBattle(user.telegram_id, true);
-    await ctx.reply(`⚔️ Victory! You defeated the alien attackers and gained ${reward} points!`);
+    await ctx.reply(`⚔️ Victory! You defeated the alien swarm and earned ${reward} points!`);
   }
 });
 
-
-// 📊 /status — Show user stats
+// --- /status command ---
 bot.command("status", async (ctx) => {
   const user = await getUser(ctx);
-  await ctx.reply(`📜 *Status Report*  
+  await ctx.reply(
+    `📜 *Status Report*  
 👤 Username: ${user.username}  
-🪙 Points: ${user.points}  
-🌍 Planet: ${user.planet}  
-⚔️ Battles: ${user.battles}`, { parse_mode: "Markdown" });
+💰 Points: ${user.points}  
+🪐 Planet: ${user.planet}  
+⚔️ Battles: ${user.battles}`,
+    { parse_mode: "Markdown" }
+  );
 });
 
+// --- /help command ---
+bot.command("help", async (ctx) => {
+  await ctx.reply(
+    `🧭 *Cosmic Foundry Commands*  
+/start – Begin your journey  
+/explore – Discover new planets  
+/battle – Fight alien raiders  
+/status – Check your progress  
+/help – Show this list`,
+    { parse_mode: "Markdown" }
+  );
+});
 
 // --- Launch the Bot ---
 bot.launch();
-console.log("🚀 Cosmic Foundry Bot is online and exploring the stars...");
+console.log("🚀 Cosmic Foundry Bot is online and exploring the galaxy!");
