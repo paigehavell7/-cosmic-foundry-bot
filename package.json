@@ -3,13 +3,17 @@
   "version": "1.0.0",
   "description": "Telegram bot for Cosmic Foundry game",
   "main": "index.js",
-  "type": "module"
+  "type": "module",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "build": "echo 'No build step required'"
   },
   "dependencies": {
     "telegraf": "^4.15.0",
     "dotenv": "^16.3.1",
     "sqlite3": "^5.1.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
