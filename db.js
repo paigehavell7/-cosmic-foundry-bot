@@ -1,16 +1,13 @@
-import sqlite3 from "sqlite3";
-import { open } from "sqlite";
+// db.js — Cosmic Foundry Bot Database (better-sqlite3 version)
+
+import Database from "better-sqlite3";
 
 // Open a connection to the local SQLite database
-export const dbPromise = open({
-  filename: "./database.sqlite",
-  driver: sqlite3.Database,
-});
+const db = new Database("./database.sqlite");
 
-// Create tables if they don't exist
+// Initialize database tables
 export async function initDB() {
-  const db = await dbPromise;
-  await db.exec(`
+  db.prepare(`
     CREATE TABLE IF NOT EXISTS users (
       telegram_id TEXT PRIMARY KEY,
       username TEXT,
@@ -18,111 +15,68 @@ export async function initDB() {
       level INTEGER DEFAULT 1,
       energy INTEGER DEFAULT 100,
       last_active INTEGER DEFAULT 0
-    );
-  `);
+    )
+  `).run();
 
-  await db.exec(`
+  db.prepare(`
     CREATE TABLE IF NOT EXISTS inventory (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       telegram_id TEXT,
       item_name TEXT,
       quantity INTEGER DEFAULT 1,
       FOREIGN KEY (telegram_id) REFERENCES users (telegram_id)
-    );
-  `);
+    )
+  `).run();
 }
 
 // Add a new user or get existing one
-export async function getOrCreateUser(ctx) {
-  const db = await dbPromise;
+export function getOrCreateUser(ctx) {
   const telegramId = String(ctx.from.id);
   const username = ctx.from.username || "Unknown";
 
-  const user = await db.get("SELECT * FROM users WHERE telegram_id = ?", [telegramId]);
+  let user = db.prepare("SELECT * FROM users WHERE telegram_id = ?").get(telegramId);
 
   if (!user) {
-    await db.run(
-      "INSERT INTO users (telegram_id, username, points, level, energy, last_active) VALUES (?, ?, 0, 1, 100, ?)",
-      [telegramId, username, Date.now()]
-    );
-    return {
-      telegram_id: telegramId,
-      username,
-      points: 0,
-      level: 1,
-      energy: 100,
-    };
+    db.prepare(
+      "INSERT INTO users (telegram_id, username, points, level, energy, last_active) VALUES (?, ?, 0, 1, 100, ?)"
+    ).run(telegramId, username, Date.now());
+
+    user = db.prepare("SELECT * FROM users WHERE telegram_id = ?").get(telegramId);
   }
+
   return user;
 }
 
-// Get user by Telegram ID
-export async function getUser(ctx) {
-  const db = await dbPromise;
-  const telegramId = String(ctx.from.id);
-  return db.get("SELECT * FROM users WHERE telegram_id = ?", [telegramId]);
+// Update player stats
+export function updateUserStats(telegramId, changes) {
+  const { points = 0, energy = 0, level = 0 } = changes;
+
+  db.prepare(`
+    UPDATE users
+    SET points = points + ?,
+        energy = energy + ?,
+        level = level + ?
+    WHERE telegram_id = ?
+  `).run(points, energy, level, telegramId);
 }
 
-// Add or remove points
-export async function dbAddPoints(telegramId, amount) {
-  const db = await dbPromise;
-  await db.run(
-    "UPDATE users SET points = points + ? WHERE telegram_id = ?",
-    [amount, telegramId]
-  );
-}
-
-// Update energy or other user stats
-export async function updateUserStat(telegramId, field, amount) {
-  const db = await dbPromise;
-  await db.run(
-    `UPDATE users SET ${field} = ${field} + ? WHERE telegram_id = ?`,
-    [amount, telegramId]
-  );
-}
-
-// Add an item to user inventory
-export async function addInventoryItem(telegramId, itemName) {
-  const db = await dbPromise;
-
-  const existing = await db.get(
-    "SELECT * FROM inventory WHERE telegram_id = ? AND item_name = ?",
-    [telegramId, itemName]
-  );
+// Manage inventory
+export function addItem(telegramId, itemName, quantity = 1) {
+  const existing = db
+    .prepare("SELECT * FROM inventory WHERE telegram_id = ? AND item_name = ?")
+    .get(telegramId, itemName);
 
   if (existing) {
-    await db.run(
-      "UPDATE inventory SET quantity = quantity + 1 WHERE id = ?",
-      [existing.id]
-    );
+    db.prepare(
+      "UPDATE inventory SET quantity = quantity + ? WHERE telegram_id = ? AND item_name = ?"
+    ).run(quantity, telegramId, itemName);
   } else {
-    await db.run(
-      "INSERT INTO inventory (telegram_id, item_name, quantity) VALUES (?, ?, 1)",
-      [telegramId, itemName]
-    );
+    db.prepare(
+      "INSERT INTO inventory (telegram_id, item_name, quantity) VALUES (?, ?, ?)"
+    ).run(telegramId, itemName, quantity);
   }
 }
 
-// Get user's inventory
-export async function getInventory(telegramId) {
-  const db = await dbPromise;
-  return db.all(
-    "SELECT item_name, quantity FROM inventory WHERE telegram_id = ?",
-    [telegramId]
-  );
+export function getInventory(telegramId) {
+  return db.prepare("SELECT * FROM inventory WHERE telegram_id = ?").all(telegramId);
 }
-
-// Reset database (use with caution)
-export async function resetDatabase() {
-  const db = await dbPromise;
-  await db.exec("DELETE FROM users;");
-  await db.exec("DELETE FROM inventory;");
-  console.log("🧹 Database reset complete!");
-}
-
-// Initialize DB at startup
-initDB().then(() => {
-  console.log("🪐 Database initialized successfully.");
-}).catch((err) => {
-  console.error("❌ Database initialization failed:", err);
-});
