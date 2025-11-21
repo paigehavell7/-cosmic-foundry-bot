@@ -1,16 +1,18 @@
 // index.js
 // Cosmic Foundry – Phase 1 core bot
 
-require("dotenv").config();
-const { Telegraf } = require("telegraf");
-const {
+import dotenv from "dotenv";
+import { Telegraf } from "telegraf";
+import {
   initDB,
   getOrCreateUser,
   addXP,
   addCredits,
   claimDaily,
   getUserById,
-} = require("./db");
+} from "./db.js";
+
+dotenv.config();
 
 // --- Basic safety checks ---
 const BOT_TOKEN = process.env.BOT_TOKEN;
