@@ -118,29 +118,52 @@ bot.command("daily", (ctx) => {
 });
 
 // --- /explore ---
-bot.command("explore", (ctx) => {
+bot.command("explore", async (ctx) => {
   try {
-    const tgUser = ctx.from;
-    const user = getOrCreateUser(tgUser.id, tgUser.username);
+    // get or create the player
+    const user = await getOrCreateUser(ctx);
 
-    // Simple random outcome
+    // Simple random outcome table
     const outcomes = [
       {
-        text: "You explore a shattered canyon on Pyroskarn and salvage broken tech.",
+        text: "You explore a shattered crystal moon and find glowing shards.",
         xp: 15,
         credits: 10,
       },
       {
-        text: "You discover a hidden ice cave on Cryomire glowing with crystal shards.",
+        text: "You discover a hidden ice cave filled with ancient tech.",
         xp: 20,
         credits: 8,
       },
       {
-        text: "You drift through Aethervale and brush against a dream storm.",
+        text: "You drift through Aethervine nebula strands that boost your mind.",
         xp: 25,
         credits: 5,
       },
       {
-        text: "You scout a corrupted ridge on the Void Nexus, barely escaping a lurking horror.",
+        text: "You scout a corrupted rift and barely make it back with data.",
         xp: 30,
         credits: 12,
+      },
+    ];
+
+    // Pick a random outcome
+    const randomIndex = Math.floor(Math.random() * outcomes.length);
+    const result = outcomes[randomIndex];
+
+    // Send message to player
+    await ctx.reply(
+      `🛰️ ${result.text}\n\n✨ XP gained: ${result.xp}\n💳 Credits found: ${result.credits}`
+    );
+
+    // OPTIONAL: update the DB here if you have helpers for that
+    // e.g. await addProgress(user.telegram_id, result.xp, result.credits);
+  } catch (err) {
+    console.error("Error in /explore:", err);
+    await ctx.reply("⚠️ Something went wrong while exploring.");
+  }
+});
+
+// ===== Start the bot =====
+bot.launch();
+console.log("🚀 Cosmic Foundry: Exodus bot is online");
