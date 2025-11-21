@@ -1,154 +1,135 @@
-// db.js
-// Simple SQLite database using better-sqlite3 for Cosmic Foundry bot
+// db.js – Cosmic Foundry database layer (ESM + better-sqlite3)
 
-const Database = require("better-sqlite3");
+import Database from "better-sqlite3";
 
-let db;
+// One shared DB connection
+const db = new Database("./cosmic_foundry.db");
 
-/**
- * Initialize the database and tables
- */
-function initDB() {
-  if (!db) {
-    db = new Database("cosmic_foundry.sqlite");
-  }
-
-  // Users table
-  db.prepare(`
+// --- Initialize the database ---
+export async function initDB() {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      telegram_id TEXT UNIQUE,
-      username TEXT,
-      level INTEGER DEFAULT 1,
-      xp INTEGER DEFAULT 0,
-      credits INTEGER DEFAULT 0,
-      last_daily_claim INTEGER DEFAULT 0,
-      created_at INTEGER DEFAULT (strftime('%s','now'))
+      telegram_id TEXT PRIMARY KEY,
+      username    TEXT,
+      xp          INTEGER DEFAULT 0,
+      credits     INTEGER DEFAULT 0,
+      level       INTEGER DEFAULT 1,
+      last_daily  INTEGER DEFAULT 0
     );
-  `).run();
-
-  console.log("✅ Database initialized");
+  `);
 }
 
-/**
- * Get existing user or create a new one
- */
-function getOrCreateUser(telegramId, username) {
-  const getStmt = db.prepare("SELECT * FROM users WHERE telegram_id = ?");
-  let user = getStmt.get(String(telegramId));
+// --- Helpers ---
 
-  if (!user) {
-    const startCredits = Number(process.env.REWARD_POINTS_START || 100);
+function rowToUser(row) {
+  if (!row) return null;
+  return {
+    telegram_id: row.telegram_id,
+    username: row.username,
+    xp: row.xp,
+    credits: row.credits,
+    level: row.level,
+    last_daily: row.last_daily,
+  };
+}
 
-    const insertStmt = db.prepare(`
-      INSERT INTO users (telegram_id, username, credits)
-      VALUES (?, ?, ?)
-    `);
-    insertStmt.run(String(telegramId), username || "Traveler", startCredits);
+// Get or create a user based on ctx.from
+export async function getOrCreateUser(tgUser) {
+  const telegram_id = String(tgUser.id);
+  const username = tgUser.username || "Traveler";
 
-    user = getStmt.get(String(telegramId));
+  const getStmt = db.prepare(
+    "SELECT telegram_id, username, xp, credits, level, last_daily FROM users WHERE telegram_id = ?"
+  );
+  let row = getStmt.get(telegram_id);
+
+  if (!row) {
+    const insertStmt = db.prepare(
+      "INSERT INTO users (telegram_id, username) VALUES (?, ?)"
+    );
+    insertStmt.run(telegram_id, username);
+    row = getStmt.get(telegram_id);
   }
 
-  return user;
+  return rowToUser(row);
 }
 
-/**
- * Add XP and auto-level if needed
- */
-function addXP(userId, amount) {
-  const user = db
-    .prepare("SELECT level, xp FROM users WHERE id = ?")
-    .get(userId);
+// Get user by Telegram ID (string)
+export async function getUserById(telegram_id) {
+  const getStmt = db.prepare(
+    "SELECT telegram_id, username, xp, credits, level, last_daily FROM users WHERE telegram_id = ?"
+  );
+  const row = getStmt.get(String(telegram_id));
+  return rowToUser(row);
+}
 
-  if (!user) return;
+// --- XP & Credits ---
 
-  let newXP = user.xp + amount;
-  let newLevel = user.level;
+export async function addXP(telegram_id, amount) {
+  const stmt = db.prepare(
+    "UPDATE users SET xp = xp + ?, level = CASE WHEN xp + ? >= 100 THEN level + 1 ELSE level END WHERE telegram_id = ?"
+  );
+  stmt.run(amount, amount, String(telegram_id));
+}
 
-  // simple XP curve: level * 100
-  let xpNeeded = newLevel * 100;
+export async function addCredits(telegram_id, amount) {
+  const stmt = db.prepare(
+    "UPDATE users SET credits = credits + ? WHERE telegram_id = ?"
+  );
+  stmt.run(amount, String(telegram_id));
+}
 
-  while (newXP >= xpNeeded) {
-    newXP -= xpNeeded;
-    newLevel += 1;
-    xpNeeded = newLevel * 100;
+// --- Daily reward ---
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+export async function claimDaily(telegram_id) {
+  const id = String(telegram_id);
+
+  const getStmt = db.prepare(
+    "SELECT telegram_id, username, xp, credits, level, last_daily FROM users WHERE telegram_id = ?"
+  );
+  let row = getStmt.get(id);
+
+  if (!row) {
+    // ensure user exists
+    const insertStmt = db.prepare(
+      "INSERT INTO users (telegram_id, username) VALUES (?, ?)"
+    );
+    insertStmt.run(id, "Traveler");
+    row = getStmt.get(id);
   }
 
-  db.prepare(
-    "UPDATE users SET xp = ?, level = ? WHERE id = ?"
-  ).run(newXP, newLevel, userId);
+  const now = Date.now();
+  const last = row.last_daily || 0;
+  const diff = now - last;
 
-  return { newXP, newLevel };
-}
+  if (diff < ONE_DAY_MS) {
+    const remainingMs = ONE_DAY_MS - diff;
+    const hours = Math.floor(remainingMs / (60 * 60 * 1000));
+    const minutes = Math.floor(
+      (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
+    );
 
-/**
- * Add credits (points/currency)
- */
-function addCredits(userId, amount) {
-  db.prepare(
-    "UPDATE users SET credits = credits + ? WHERE id = ?"
-  ).run(amount, userId);
-}
-
-/**
- * Try to claim daily reward.
- * Returns:
- *  { ok: true, reward }  if claimed
- *  { ok: false, remainingHours } if already claimed today
- */
-function claimDaily(userId) {
-  const row = db
-    .prepare("SELECT last_daily_claim FROM users WHERE id = ?")
-    .get(userId);
-
-  const now = Math.floor(Date.now() / 1000); // seconds
-  const ONE_DAY = 24 * 60 * 60;
-
-  const dailyReward = Number(process.env.REWARD_POINTS_DAILY || 10);
-
-  if (!row || !row.last_daily_claim) {
-    // never claimed
-    db.prepare(`
-      UPDATE users
-      SET last_daily_claim = ?
-      WHERE id = ?
-    `).run(now, userId);
-
-    addCredits(userId, dailyReward);
-    return { ok: true, reward: dailyReward };
+    return {
+      ok: false,
+      message: `⏳ You've already claimed your daily reward. Try again in ${hours}h ${minutes}m.`,
+    };
   }
 
-  const diff = now - row.last_daily_claim;
+  // You can tweak these values any time
+  const xpReward = 30;
+  const creditsReward = 15;
 
-  if (diff >= ONE_DAY) {
-    // can claim again
-    db.prepare(`
-      UPDATE users
-      SET last_daily_claim = ?
-      WHERE id = ?
-    `).run(now, userId);
+  const updateStmt = db.prepare(
+    "UPDATE users SET xp = xp + ?, credits = credits + ?, last_daily = ? WHERE telegram_id = ?"
+  );
+  updateStmt.run(xpReward, creditsReward, now, id);
 
-    addCredits(userId, dailyReward);
-    return { ok: true, reward: dailyReward };
-  } else {
-    const remainingSeconds = ONE_DAY - diff;
-    const remainingHours = Math.ceil(remainingSeconds / 3600);
-    return { ok: false, remainingHours };
-  }
+  return {
+    ok: true,
+    xp: xpReward,
+    credits: creditsReward,
+    message: `🎁 Daily reward claimed! +${xpReward} XP, +${creditsReward} credits.`,
+  };
 }
-
-/**
- * Get fresh user from DB
- */
-function getUserById(id) {
-  return db.prepare("SELECT * FROM users WHERE id = ?").get(id);
-}
-
-module.exports = {
-  initDB,
-  getOrCreateUser,
-  addXP,
-  addCredits,
-  claimDaily,
-  getUserById,
-};
