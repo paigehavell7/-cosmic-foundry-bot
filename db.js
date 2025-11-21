@@ -1,49 +1,57 @@
-// db.js – Cosmic Foundry core database + logic (ESM, better-sqlite3)
+// db.js – Cosmic Foundry database (ESM + better-sqlite3)
 
 import Database from "better-sqlite3";
 
 let db;
 
-/**
- * Initialize the SQLite database and tables.
- */
+// --- Init DB -------------------------------------------------
+
 export function initDB() {
   if (db) return db;
 
-  db = new Database("./cosmic_foundry.db");
-  db.pragma("journal_mode = WAL");
+  db = new Database("./database.sqlite");
 
-  // Main player table
-  db.prepare(`
+  // Main users table
+  db.exec(`
     CREATE TABLE IF NOT EXISTS users (
-      telegram_id   TEXT PRIMARY KEY,
-      username      TEXT,
-      credits       INTEGER DEFAULT 0,
-      xp            INTEGER DEFAULT 0,
-      level         INTEGER DEFAULT 1,
-      current_planet TEXT DEFAULT 'Aether Prime',
-      battles_won   INTEGER DEFAULT 0,
-      battles_lost  INTEGER DEFAULT 0,
-      last_daily    INTEGER DEFAULT 0
-    )
-  `).run();
+      telegram_id TEXT PRIMARY KEY,
+      username    TEXT,
+      credits     INTEGER DEFAULT 0,
+      xp          INTEGER DEFAULT 0,
+      level       INTEGER DEFAULT 1,
+      last_daily  INTEGER DEFAULT 0,
+      planet      TEXT    DEFAULT 'aetherion'
+    );
+  `);
 
-  // Later you can add inventory, companions, etc.
-  return db;
-}
-
-function getDb() {
-  if (!db) {
-    initDB();
+  // For existing DBs: try to add planet column, ignore if it already exists
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN planet TEXT DEFAULT 'aetherion';`);
+  } catch (err) {
+    if (!String(err.message).includes("duplicate column name")) {
+      throw err;
+    }
   }
+
   return db;
 }
 
-/**
- * Create a user if they don't exist, then return them.
- */
-export function getOrCreateUser(telegramId, username = "Traveler") {
-  const db = getDb();
+// --- Helpers -------------------------------------------------
+
+function computeLevelFromXP(xp) {
+  // Simple curve: every 100 XP = +1 level
+  return 1 + Math.floor(xp / 100);
+}
+
+// --- User operations -----------------------------------------
+
+export async function getOrCreateUser(tgUser) {
+  const db = initDB();
+  const telegramId = String(tgUser.id);
+  const username =
+    tgUser.username ||
+    [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") ||
+    "Traveler";
 
   let user = db
     .prepare("SELECT * FROM users WHERE telegram_id = ?")
@@ -52,8 +60,8 @@ export function getOrCreateUser(telegramId, username = "Traveler") {
   if (!user) {
     db.prepare(
       `
-      INSERT INTO users (telegram_id, username, credits, xp, level)
-      VALUES (?, ?, 100, 0, 1)
+      INSERT INTO users (telegram_id, username, credits, xp, level, last_daily, planet)
+      VALUES (?, ?, 100, 0, 1, 0, 'aetherion')
     `
     ).run(telegramId, username);
 
@@ -65,119 +73,72 @@ export function getOrCreateUser(telegramId, username = "Traveler") {
   return user;
 }
 
-/**
- * Get user by telegram id (no auto-create).
- */
-export function getUserById(telegramId) {
-  const db = getDb();
+export async function getUserById(telegramId) {
+  const db = initDB();
   return db
     .prepare("SELECT * FROM users WHERE telegram_id = ?")
-    .get(telegramId);
+    .get(String(telegramId));
 }
 
-/**
- * Add XP and automatically handle level-ups.
- */
-export function addXP(telegramId, amount) {
-  const db = getDb();
-  const user = getUserById(telegramId);
-  if (!user) return null;
+export async function addXP(telegramId, amount) {
+  const db = initDB();
+  const id = String(telegramId);
 
-  const newXP = user.xp + amount;
-
-  // Simple level formula: every 100xp = +1 level
-  const oldLevel = user.level;
-  const newLevel = Math.floor(newXP / 100) + 1;
+  const row = db
+    .prepare("SELECT xp FROM users WHERE telegram_id = ?")
+    .get(id);
+  const oldXP = row ? row.xp || 0 : 0;
+  const newXP = oldXP + amount;
+  const newLevel = computeLevelFromXP(newXP);
 
   db.prepare("UPDATE users SET xp = ?, level = ? WHERE telegram_id = ?").run(
     newXP,
     newLevel,
-    telegramId
-  );
-
-  return {
-    ...user,
-    xp: newXP,
-    level: newLevel,
-    leveledUp: newLevel > oldLevel,
-  };
-}
-
-/**
- * Add or subtract credits.
- */
-export function addCredits(telegramId, amount) {
-  const db = getDb();
-  const user = getUserById(telegramId);
-  if (!user) return null;
-
-  const newCredits = Math.max(0, user.credits + amount);
-
-  db.prepare("UPDATE users SET credits = ? WHERE telegram_id = ?").run(
-    newCredits,
-    telegramId
-  );
-
-  return { ...user, credits: newCredits };
-}
-
-/**
- * Change the player's current planet.
- */
-export function setPlanet(telegramId, planetName) {
-  const db = getDb();
-  db.prepare("UPDATE users SET current_planet = ? WHERE telegram_id = ?").run(
-    planetName,
-    telegramId
+    id
   );
 }
 
-/**
- * Claim daily reward.
- * Returns: { claimed: boolean, amount: number, nextAt: number }
- */
-export function claimDaily(telegramId) {
-  const db = getDb();
-  const user = getUserById(telegramId);
-  if (!user) return { claimed: false, amount: 0, nextAt: 0 };
+export async function addCredits(telegramId, amount) {
+  const db = initDB();
+  const id = String(telegramId);
 
+  db.prepare(
+    "UPDATE users SET credits = credits + ? WHERE telegram_id = ?"
+  ).run(amount, id);
+}
+
+export async function claimDaily(telegramId) {
+  const db = initDB();
+  const id = String(telegramId);
   const now = Date.now();
-  const DAY_MS = 24 * 60 * 60 * 1000;
 
-  if (user.last_daily && now - user.last_daily < DAY_MS) {
-    // Not ready yet
-    const nextAt = user.last_daily + DAY_MS;
-    return { claimed: false, amount: 0, nextAt };
+  const user = db
+    .prepare("SELECT last_daily FROM users WHERE telegram_id = ?")
+    .get(id);
+
+  const last = user?.last_daily || 0;
+  const ONE_DAY = 24 * 60 * 60 * 1000;
+
+  if (now - last < ONE_DAY) {
+    // Already claimed
+    return { ok: false, remainingMs: ONE_DAY - (now - last) };
   }
 
-  const reward = 10; // daily credits
-  const newCredits = user.credits + reward;
+  const reward = 10;
 
   db.prepare(
-    "UPDATE users SET credits = ?, last_daily = ? WHERE telegram_id = ?"
-  ).run(newCredits, now, telegramId);
+    "UPDATE users SET credits = credits + ?, last_daily = ? WHERE telegram_id = ?"
+  ).run(reward, now, id);
 
-  return { claimed: true, amount: reward, nextAt: now + DAY_MS };
+  return { ok: true, reward };
 }
 
-/**
- * Record the result of a battle.
- * outcome: "win" | "loss"
- */
-export function recordBattle(telegramId, outcome) {
-  const db = getDb();
-  const user = getUserById(telegramId);
-  if (!user) return null;
+export async function setPlanet(telegramId, planetKey) {
+  const db = initDB();
+  const id = String(telegramId);
 
-  let wins = user.battles_won;
-  let losses = user.battles_lost;
-
-  if (outcome === "win") wins += 1;
-  if (outcome === "loss") losses += 1;
-
-  db.prepare(
-    "UPDATE users SET battles_won = ?, battles_lost = ? WHERE telegram_id = ?"
-  ).run(wins, losses, telegramId);
-
-  return { ...user, battles_won: wins, battles_lost: losses };
+  db.prepare("UPDATE users SET planet = ? WHERE telegram_id = ?").run(
+    planetKey,
+    id
+  );
 }
