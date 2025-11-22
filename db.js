@@ -1,144 +1,159 @@
-// db.js – Cosmic Foundry database (ESM + better-sqlite3)
+// db.js (ESM version)
 
-import Database from "better-sqlite3";
+// --- Simple JSON-based database storage ---
+import fs from "fs";
 
-let db;
+const DB_FILE = "./database.json";
 
-// --- Init DB -------------------------------------------------
-
-export function initDB() {
-  if (db) return db;
-
-  db = new Database("./database.sqlite");
-
-  // Main users table
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      telegram_id TEXT PRIMARY KEY,
-      username    TEXT,
-      credits     INTEGER DEFAULT 0,
-      xp          INTEGER DEFAULT 0,
-      level       INTEGER DEFAULT 1,
-      last_daily  INTEGER DEFAULT 0,
-      planet      TEXT    DEFAULT 'aetherion'
-    );
-  `);
-
-  // For existing DBs: try to add planet column, ignore if it already exists
+// --- Load or initialize DB ---
+function loadDB() {
   try {
-    db.exec(`ALTER TABLE users ADD COLUMN planet TEXT DEFAULT 'aetherion';`);
-  } catch (err) {
-    if (!String(err.message).includes("duplicate column name")) {
-      throw err;
+    if (!fs.existsSync(DB_FILE)) {
+      fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2));
     }
+    return JSON.parse(fs.readFileSync(DB_FILE));
+  } catch (err) {
+    console.error("Error loading DB:", err);
+    return { users: {} };
+  }
+}
+
+// --- Save DB ---
+function saveDB(db) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+}
+
+// --- Create or return existing user ---
+export function getOrCreateUser(tgUser) {
+  const db = loadDB();
+
+  if (!db.users[tgUser.id]) {
+    db.users[tgUser.id] = {
+      id: tgUser.id,
+      name: tgUser.username || tgUser.first_name || "Traveler",
+      level: 1,
+      xp: 0,
+      credits: 100,
+      lastDaily: null,
+
+      // NEW INVENTORY FIELDS
+      inventory: [],
+      equipped: {
+        weapon: null,
+        armor: null,
+      }
+    };
+    saveDB(db);
   }
 
-  return db;
+  return db.users[tgUser.id];
 }
 
-// --- Helpers -------------------------------------------------
+// --- Add XP ---
+export function addXP(userId, amount) {
+  const db = loadDB();
+  const user = db.users[userId];
+  if (!user) return;
 
-function computeLevelFromXP(xp) {
-  // Simple curve: every 100 XP = +1 level
-  return 1 + Math.floor(xp / 100);
-}
+  user.xp += amount;
 
-// --- User operations -----------------------------------------
-
-export async function getOrCreateUser(tgUser) {
-  const db = initDB();
-  const telegramId = String(tgUser.id);
-  const username =
-    tgUser.username ||
-    [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") ||
-    "Traveler";
-
-  let user = db
-    .prepare("SELECT * FROM users WHERE telegram_id = ?")
-    .get(telegramId);
-
-  if (!user) {
-    db.prepare(
-      `
-      INSERT INTO users (telegram_id, username, credits, xp, level, last_daily, planet)
-      VALUES (?, ?, 100, 0, 1, 0, 'aetherion')
-    `
-    ).run(telegramId, username);
-
-    user = db
-      .prepare("SELECT * FROM users WHERE telegram_id = ?")
-      .get(telegramId);
+  // Simple level up system
+  const nextLevelXP = user.level * 100;
+  if (user.xp >= nextLevelXP) {
+    user.level++;
+    user.xp -= nextLevelXP;
   }
 
-  return user;
+  saveDB(db);
 }
 
-export async function getUserById(telegramId) {
-  const db = initDB();
-  return db
-    .prepare("SELECT * FROM users WHERE telegram_id = ?")
-    .get(String(telegramId));
+// --- Add Credits ---
+export function addCredits(userId, amount) {
+  const db = loadDB();
+  const user = db.users[userId];
+  if (!user) return;
+
+  user.credits += amount;
+  saveDB(db);
 }
 
-export async function addXP(telegramId, amount) {
-  const db = initDB();
-  const id = String(telegramId);
+// --- Daily Reward ---
+export function claimDaily(userId) {
+  const db = loadDB();
+  const user = db.users[userId];
+  if (!user) return false;
 
-  const row = db
-    .prepare("SELECT xp FROM users WHERE telegram_id = ?")
-    .get(id);
-  const oldXP = row ? row.xp || 0 : 0;
-  const newXP = oldXP + amount;
-  const newLevel = computeLevelFromXP(newXP);
+  const today = new Date().toDateString();
 
-  db.prepare("UPDATE users SET xp = ?, level = ? WHERE telegram_id = ?").run(
-    newXP,
-    newLevel,
-    id
-  );
-}
-
-export async function addCredits(telegramId, amount) {
-  const db = initDB();
-  const id = String(telegramId);
-
-  db.prepare(
-    "UPDATE users SET credits = credits + ? WHERE telegram_id = ?"
-  ).run(amount, id);
-}
-
-export async function claimDaily(telegramId) {
-  const db = initDB();
-  const id = String(telegramId);
-  const now = Date.now();
-
-  const user = db
-    .prepare("SELECT last_daily FROM users WHERE telegram_id = ?")
-    .get(id);
-
-  const last = user?.last_daily || 0;
-  const ONE_DAY = 24 * 60 * 60 * 1000;
-
-  if (now - last < ONE_DAY) {
-    // Already claimed
-    return { ok: false, remainingMs: ONE_DAY - (now - last) };
+  if (user.lastDaily === today) {
+    return false;
   }
 
-  const reward = 10;
+  user.lastDaily = today;
+  user.credits += 10;
 
-  db.prepare(
-    "UPDATE users SET credits = credits + ?, last_daily = ? WHERE telegram_id = ?"
-  ).run(reward, now, id);
-
-  return { ok: true, reward };
+  saveDB(db);
+  return true;
 }
 
-export async function setPlanet(telegramId, planetKey) {
-  const db = initDB();
-  const id = String(telegramId);
+// --- Get user by Telegram ID ---
+export function getUserById(id) {
+  const db = loadDB();
+  return db.users[id] || null;
+}
 
-  db.prepare("UPDATE users SET planet = ? WHERE telegram_id = ?").run(
-    planetKey,
-    id
-  );
+////////////////////////////////////////////////////////
+//              NEW INVENTORY SYSTEM
+////////////////////////////////////////////////////////
+
+// --- Add item to inventory ---
+export function addItem(userId, item) {
+  const db = loadDB();
+  const user = db.users[userId];
+  if (!user) return;
+
+  user.inventory.push(item);
+  saveDB(db);
+}
+
+// --- Get a user's inventory ---
+export function getInventory(userId) {
+  const db = loadDB();
+  const user = db.users[userId];
+  return user ? user.inventory : [];
+}
+
+// --- Equip a weapon/armor ---
+export function equipItem(userId, itemName) {
+  const db = loadDB();
+  const user = db.users[userId];
+  if (!user) return { success: false, message: "User not found." };
+
+  const item = user.inventory.find(i => i.name === itemName);
+  if (!item) return { success: false, message: "Item not found in inventory." };
+
+  if (item.type === "Weapon") {
+    user.equipped.weapon = item;
+  } else if (item.type === "Armor") {
+    user.equipped.armor = item;
+  } else {
+    return { success: false, message: "Item cannot be equipped." };
+  }
+
+  saveDB(db);
+  return { success: true, message: `${itemName} equipped.` };
+}
+
+// --- Unequip ---
+export function unequip(userId, slot) {
+  const db = loadDB();
+  const user = db.users[userId];
+
+  if (!user) return { success: false };
+
+  if (slot === "weapon") user.equipped.weapon = null;
+  if (slot === "armor") user.equipped.armor = null;
+
+  saveDB(db);
+  return { success: true };
 }
