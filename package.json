@@ -7,13 +7,13 @@
   "scripts": {
     "start": "node index.js",
     "build": "echo 'No build step required'"
-  }"dependencies": {
-    "telegraf": "latest",
-    "sqlite3": "latest",
-    "sqlite": "latest",
-    "dotenv": "latest"
-},
-  
+  },
+  "dependencies": {
+    "telegraf": "^4.15.0",
+    "sqlite3": "^5.1.6",
+    "sqlite": "^4.2.1",
+    "dotenv": "^16.3.1"
+  },
   "engines": {
     "node": ">=18.0.0"
   }
