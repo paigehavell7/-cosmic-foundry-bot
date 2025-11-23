@@ -1,7 +1,8 @@
-// index.js – Cosmic Foundry: Exodus core bot (ESM)
+// index.js
+// Cosmic Foundry – Exodus core bot
 
 import dotenv from "dotenv";
-import { Telegraf, Markup } from "telegraf";
+import { Telegraf } from "telegraf";
 import {
   initDB,
   getOrCreateUser,
@@ -9,444 +10,401 @@ import {
   addCredits,
   claimDaily,
   getUserById,
-  setPlanet,
 } from "./db.js";
 
 dotenv.config();
 
-// --- Safety check for BOT_TOKEN ------------------------------
-
+// --- Basic safety checks ---
 const BOT_TOKEN = process.env.BOT_TOKEN;
+
 if (!BOT_TOKEN) {
-  console.error("❌ BOT_TOKEN is missing from environment variables.");
+  console.error("❌ BOT_TOKEN is missing from environment variables");
   process.exit(1);
 }
 
-// --- Planet & creature config --------------------------------
+// --- Init DB & Bot ---
+const bot = new Telegraf(BOT_TOKEN);
 
-const PLANETS = {
-  aetherion: {
-    name: "Aetherion",
-    emoji: "💎",
-    difficulty: 1,
-    description: "Crystal nebula fields and gentle alien life.",
-    creatures: [
-      { name: "Prism Stalker", emoji: "💠" },
-      { name: "Shard Titan", emoji: "🪨" },
-      { name: "Crystal Wraith", emoji: "👻" },
-      { name: "Glimmerfang", emoji: "✨" },
-    ],
-    exploreEvents: [
+// --- Helper: format profile text ---
+function formatProfile(user) {
+  const level = user.level ?? 1;
+  const xp = user.xp ?? 0;
+  const credits = user.credits ?? 0;
+  const planet = user.planet || "Aetherion";
+
+  return (
+    "🧑‍🚀 *Traveler Profile*\n\n" +
+    `🪪 ID: \`${user.telegram_id}\`\n` +
+    `📛 Name: *${user.username || "Unknown"}*\n` +
+    `⭐ Level: *${level}*\n` +
+    `📊 XP: *${xp}*\n` +
+    `💳 Credits: *${credits}*\n` +
+    `🪐 Current Planet: *${planet}*`
+  );
+}
+
+// --- Helper: random int ---
+function rand(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// ==============================
+//  CREATURES & BOSSES
+// ==============================
+
+// Normal creatures (per planet)
+const creatures = [
+  // generic
+  {
+    name: "Prism Stalker",
+    minXP: 5,
+    maxXP: 15,
+    minCredits: 3,
+    maxCredits: 8,
+  },
+
+  // by planet
+  {
+    name: "Shardcrawler",
+    planet: "Aetherion",
+    minXP: 10,
+    maxXP: 18,
+    minCredits: 5,
+    maxCredits: 10,
+  },
+  {
+    name: "Frostshade Beast",
+    planet: "Cryolune",
+    minXP: 12,
+    maxXP: 20,
+    minCredits: 7,
+    maxCredits: 12,
+  },
+  {
+    name: "Umbral Warg",
+    planet: "Umbrava",
+    minXP: 14,
+    maxXP: 22,
+    minCredits: 9,
+    maxCredits: 14,
+  },
+  {
+    name: "Rustfiend Ghoul",
+    planet: "Ruinfall",
+    minXP: 15,
+    maxXP: 25,
+    minCredits: 10,
+    maxCredits: 15,
+  },
+];
+
+// Mini-bosses (rare)
+const minibosses = [
+  {
+    name: "Crystal Howler",
+    planet: "Aetherion",
+    ability: "Shard Burst",
+    xp: 35,
+    credits: 20,
+  },
+  {
+    name: "Frost Revenant",
+    planet: "Cryolune",
+    ability: "Freezing Gaze",
+    xp: 40,
+    credits: 25,
+  },
+  {
+    name: "Umbra Reaper",
+    planet: "Umbrava",
+    ability: "Shadow Slice",
+    xp: 45,
+    credits: 30,
+  },
+  {
+    name: "Iron Rot Ogre",
+    planet: "Ruinfall",
+    ability: "Corrosion Smash",
+    xp: 50,
+    credits: 35,
+  },
+];
+
+// Planet bosses
+const planetBosses = [
+  {
+    name: "Aetherion Wyrm",
+    planet: "Aetherion",
+    ability: "Prismatic Breath",
+    xp: 120,
+    credits: 80,
+  },
+  {
+    name: "Cryolord Titan",
+    planet: "Cryolune",
+    ability: "Absolute Zero",
+    xp: 130,
+    credits: 90,
+  },
+  {
+    name: "Umbral Devourer",
+    planet: "Umbrava",
+    ability: "Soul Rend",
+    xp: 150,
+    credits: 100,
+  },
+  {
+    name: "Ruinfall Colossus",
+    planet: "Ruinfall",
+    ability: "Decay Pulse",
+    xp: 160,
+    credits: 120,
+  },
+];
+
+// Ultra-rare world boss
+const worldBoss = {
+  name: "Astral Leviathan",
+  ability: "Cosmic Rupture",
+  xp: 300,
+  credits: 250,
+};
+
+// ==============================
+//  COMMANDS
+// ==============================
+
+// /start – intro story
+bot.start(async (ctx) => {
+  try {
+    await getOrCreateUser(ctx.from);
+
+    const text = `
+🛰 *Welcome to Cosmic Foundry: Exodus* 🌌
+
+Your home planet has fallen. You and your crew now travel across dangerous alien worlds, searching for a new home and fighting terrifying creatures.
+
+✨ You begin your journey with *100 credits*.
+💰 You can claim *10 daily credits* with /daily.
+
+Use these commands to begin:
+• /profile – view your stats
+• /daily – claim your daily reward
+• /explore – quick adventure for XP & credits
+• /fight – battle vs creatures & bosses
+• /help – show all commands
+
+Your journey starts now, Traveler. ✨
+  `;
+
+    await ctx.reply(text, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("Error in /start:", err);
+    ctx.reply("⚠️ Something went wrong starting your journey.");
+  }
+});
+
+// /help – show commands
+bot.command("help", (ctx) => {
+  const text = `
+🛰 *Cosmic Foundry Commands*
+
+/start – story intro & basic info
+/profile – view your stats
+/daily – claim your daily credits
+/explore – fast XP & credits
+/fight – battle creatures & bosses
+/help – show this help
+  `;
+  ctx.reply(text, { parse_mode: "Markdown" });
+});
+
+// /profile – show stats
+bot.command("profile", async (ctx) => {
+  try {
+    const id = String(ctx.from.id);
+    let user = await getUserById(id);
+    if (!user) {
+      user = await getOrCreateUser(ctx.from);
+    }
+    await ctx.reply(formatProfile(user), { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("Error in /profile:", err);
+    ctx.reply("⚠️ Couldn't load your profile.");
+  }
+});
+
+// /daily – daily credits (DB handles cooldown)
+bot.command("daily", async (ctx) => {
+  try {
+    const id = String(ctx.from.id);
+    const result = await claimDaily(id);
+
+    if (!result || result.ok === false) {
+      const hours = result?.hoursLeft ?? 0;
+      ctx.reply(`⏳ You've already claimed your daily credits.\nCome back in ~${hours.toFixed(1)} hours.`);
+      return;
+    }
+
+    ctx.reply(
+      `🎁 You claimed *${result.credits}* daily credits!\n💳 New balance: *${result.totalCredits}*`,
+      { parse_mode: "Markdown" }
+    );
+  } catch (err) {
+    console.error("Error in /daily:", err);
+    ctx.reply("⚠️ Something went wrong with your daily claim.");
+  }
+});
+
+// /explore – simple adventure with flavor outcomes
+bot.command("explore", async (ctx) => {
+  try {
+    const tgUser = ctx.from;
+    const user = await getOrCreateUser(tgUser);
+    const planet = user.planet || "Aetherion";
+
+    const outcomes = [
       {
-        text: "You glide through glowing crystal arches and absorb ambient starlight.",
+        text: `You explore a shattered crystal canyon on ${planet}. Shard-light dances around your ship.`,
         xp: 15,
         credits: 10,
       },
       {
-        text: "You discover a singing geode that hums with alien energy.",
+        text: `You discover a hidden ice cavern on ${planet} filled with ancient alien tech.`,
         xp: 20,
         credits: 8,
       },
       {
-        text: "A shard storm passes by, but you navigate it like a pro pilot.",
+        text: `You drift through Aether storms above ${planet}, mapping safe routes for future travelers.`,
         xp: 25,
         credits: 5,
       },
-    ],
-    fight: {
-      winChance: 0.8,
-      xpMin: 10,
-      xpMax: 20,
-      creditsMin: 8,
-      creditsMax: 18,
-    },
-  },
-
-  pyraxis: {
-    name: "Pyraxis",
-    emoji: "🌋",
-    difficulty: 2,
-    description: "Lava oceans, ash skies, and molten nightmares.",
-    creatures: [
-      { name: "Inferno Dragonling", emoji: "🐲" },
-      { name: "Magma Serpent", emoji: "🔥" },
-      { name: "Ember Titan", emoji: "🧱" },
-      { name: "Hellhound Brute", emoji: "🐺" },
-    ],
-    exploreEvents: [
       {
-        text: "You skim over rivers of lava, mapping safe landing paths.",
-        xp: 25,
-        credits: 15,
-      },
-      {
-        text: "You salvage heat-resistant alloys from a crashed shuttle.",
+        text: `You scout a corrupted ridge on ${planet}, tagging dangerous zones for the Exodus fleet.`,
         xp: 30,
-        credits: 20,
+        credits: 12,
       },
-      {
-        text: "Ash storms batter your hull, but your piloting earns respect.",
-        xp: 35,
-        credits: 10,
-      },
-    ],
-    fight: {
-      winChance: 0.7,
-      xpMin: 18,
-      xpMax: 30,
-      creditsMin: 15,
-      creditsMax: 30,
-    },
-  },
+    ];
 
-  umbrava: {
-    name: "Umbrava",
-    emoji: "🌑",
-    difficulty: 3,
-    description: "Endless night, shadow fog, and whispering horrors.",
-    creatures: [
-      { name: "Voidfeeder", emoji: "🕳️" },
-      { name: "Nightmare Lurker", emoji: "👁️" },
-      { name: "Shadowborn Reaper", emoji: "⚔️" },
-      { name: "Umbra Wolf", emoji: "🐺" },
-    ],
-    exploreEvents: [
-      {
-        text: "You trace strange runes that glimmer faintly in the dark mist.",
-        xp: 30,
-        credits: 15,
-      },
-      {
-        text: "A chorus of unseen voices guides you around a deadly chasm.",
-        xp: 35,
-        credits: 18,
-      },
-      {
-        text: "Your sensors briefly glimpse an ancient structure… then it vanishes.",
-        xp: 40,
-        credits: 20,
-      },
-    ],
-    fight: {
-      winChance: 0.65,
-      xpMin: 25,
-      xpMax: 40,
-      creditsMin: 20,
-      creditsMax: 35,
-    },
-  },
+    const outcome = outcomes[rand(0, outcomes.length - 1)];
+    const id = String(tgUser.id);
 
-  cryolune: {
-    name: "Cryolune",
-    emoji: "❄️",
-    difficulty: 3,
-    description: "Frozen wastes, ice caverns, and crystalline predators.",
-    creatures: [
-      { name: "Frost Stalker", emoji: "🐾" },
-      { name: "Ice Revenant", emoji: "🧊" },
-      { name: "Blizzard Wyrm", emoji: "🐉" },
-      { name: "Cryo Beast", emoji: "🦴" },
-    ],
-    exploreEvents: [
-      {
-        text: "You chart a path through glittering ice spires under a pale moon.",
-        xp: 28,
-        credits: 14,
-      },
-      {
-        text: "You rescue a frozen probe and download valuable scan data.",
-        xp: 32,
-        credits: 22,
-      },
-    ],
-    fight: {
-      winChance: 0.62,
-      xpMin: 24,
-      xpMax: 38,
-      creditsMin: 20,
-      creditsMax: 36,
-    },
-  },
+    await addXP(id, outcome.xp);
+    await addCredits(id, outcome.credits);
 
-  nebulon: {
-    name: "Nebulon Veil",
-    emoji: "☁️",
-    difficulty: 4,
-    description: "Storm-torn gas colossi and lightning-born spirits.",
-    creatures: [
-      { name: "Plasma Specter", emoji: "⚡" },
-      { name: "Nebula Phantom", emoji: "👻" },
-      { name: "Storm Angel", emoji: "🪽" },
-      { name: "Thunder Leviathan", emoji: "🐋" },
-    ],
-    exploreEvents: [
-      {
-        text: "You surf ion winds, charging your ship with raw lightning.",
-        xp: 40,
-        credits: 25,
-      },
-      {
-        text: "You triangulate a storm’s eye and harvest rare energy crystals.",
-        xp: 45,
-        credits: 30,
-      },
-    ],
-    fight: {
-      winChance: 0.55,
-      xpMin: 35,
-      xpMax: 55,
-      creditsMin: 30,
-      creditsMax: 55,
-    },
-  },
+    const replyText = `
+🛰 *Exploring* 🪐 *${planet}*
 
-  ruinfal: {
-    name: "Ruinfall",
-    emoji: "💀",
-    difficulty: 5,
-    description: "Broken worlds haunted by undead cosmic titans.",
-    creatures: [
-      { name: "Cosmic Ghoul", emoji: "🧟‍♂️" },
-      { name: "Bone Titan", emoji: "🦴" },
-      { name: "Void Reanimator", emoji: "🧪" },
-      { name: "Astral Revenant", emoji: "🌌" },
-    ],
-    exploreEvents: [
-      {
-        text: "You traverse shattered space stations crawling with eerie silence.",
-        xp: 50,
-        credits: 40,
-      },
-      {
-        text: "You recover an ancient relic that hums with forbidden power.",
-        xp: 60,
-        credits: 50,
-      },
-    ],
-    fight: {
-      winChance: 0.48,
-      xpMin: 45,
-      xpMax: 70,
-      creditsMin: 40,
-      creditsMax: 80,
-    },
-  },
-};
+${outcome.text}
 
-const PLANET_KEYS = Object.keys(PLANETS);
-
-// --- Utility helpers -----------------------------------------
-
-function getPlanetForUser(user) {
-  const key = user.planet && PLANETS[user.planet] ? user.planet : "aetherion";
-  return { key, planet: PLANETS[key] };
-}
-
-function difficultyStars(diff) {
-  const max = 5;
-  return "★".repeat(diff) + "☆".repeat(max - diff);
-}
-
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-// --- Init DB & bot -------------------------------------------
-
-initDB();
-
-const bot = new Telegraf(BOT_TOKEN);
-
-// --- /start --------------------------------------------------
-
-bot.start(async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const { planet } = getPlanetForUser(user);
-
-  await ctx.reply(
-    `🛰 *Welcome to Cosmic Foundry: Exodus*\n\n` +
-      `Your home planet has fallen. You and your crew now travel across dangerous alien worlds, ` +
-      `searching for a new home and fighting terrifying creatures.\n\n` +
-      `✨ You begin your journey with *${user.credits} credits*.\n` +
-      `💫 Your current route is set toward ${planet.emoji} *${planet.name}*.\n\n` +
-      `Use these commands to begin:\n` +
-      `• /profile – view your stats\n` +
-      `• /daily – claim your daily reward\n` +
-      `• /planet – choose which world to explore\n` +
-      `• /explore – quick adventure for XP & credits\n` +
-      `• /fight – simple battle vs a random creature\n` +
-      `• /help – show all commands`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// --- /help ---------------------------------------------------
-
-bot.command("help", async (ctx) => {
-  await ctx.reply(
-    `🛰 *Cosmic Foundry Commands*\n\n` +
-      `• /profile – view your stats\n` +
-      `• /daily – claim your daily reward\n` +
-      `• /planet – choose which planet to travel to\n` +
-      `• /explore – story events & small rewards\n` +
-      `• /fight – battle creatures for bigger rewards`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// --- /profile ------------------------------------------------
-
-bot.command("profile", async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const { planet } = getPlanetForUser(user);
-
-  await ctx.reply(
-    `🧑‍🚀 *Traveler Profile*\n` +
-      `🪪 ID: ${user.telegram_id}\n` +
-      `👤 Name: ${user.username}\n` +
-      `⭐ Level: ${user.level}\n` +
-      `📊 XP: ${user.xp}\n` +
-      `💳 Credits: ${user.credits}\n` +
-      `🌍 Current Planet: ${planet.emoji} ${planet.name} (${difficultyStars(
-        planet.difficulty
-      )})`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// --- /daily --------------------------------------------------
-
-bot.command("daily", async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const result = await claimDaily(user.telegram_id);
-
-  if (!result.ok) {
-    await ctx.reply("⏳ You've already claimed your daily credits. Come back later.");
-    return;
-  }
-
-  await ctx.reply(
-    `🎁 You claimed *${result.reward}* daily credits!`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// --- /planet – choose destination ----------------------------
-
-bot.command("planet", async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const { key: currentKey } = getPlanetForUser(user);
-
-  const rows = PLANET_KEYS.map((planetKey) => {
-    const p = PLANETS[planetKey];
-    const label =
-      `${p.emoji} ${p.name} ` +
-      `(${difficultyStars(p.difficulty)})` +
-      (planetKey === currentKey ? " ✅" : "");
-    return [Markup.button.callback(label, `setplanet:${planetKey}`)];
-  });
-
-  await ctx.reply(
-    "🌍 Choose your destination:",
-    Markup.inlineKeyboard(rows)
-  );
-});
-
-// Handle planet selection
-bot.on("callback_query", async (ctx) => {
-  const data = ctx.callbackQuery.data || "";
-
-  if (data.startsWith("setplanet:")) {
-    const planetKey = data.split(":")[1];
-
-    const config = PLANETS[planetKey];
-    if (!config) {
-      await ctx.answerCbQuery("Unknown planet.", { show_alert: true });
-      return;
-    }
-
-    await setPlanet(ctx.from.id, planetKey);
-
-    await ctx.answerCbQuery(`Course set for ${config.name}!`);
-    await ctx.editMessageText(
-      `🛰 Course locked: ${config.emoji} *${config.name}*\n\n` +
-        `${config.description}`,
-      { parse_mode: "Markdown" }
-    );
+✨ XP +${outcome.xp}
+💳 Credits +${outcome.credits}
+    `;
+    ctx.reply(replyText, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("Error in /explore:", err);
+    ctx.reply("⚠️ Something went wrong while exploring.");
   }
 });
 
-// --- /explore – planet-based events --------------------------
-
-bot.command("explore", async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const { planet } = getPlanetForUser(user);
-
-  const events = planet.exploreEvents;
-  const event = events[Math.floor(Math.random() * events.length)];
-
-  await addXP(user.telegram_id, event.xp);
-  await addCredits(user.telegram_id, event.credits);
-
-  await ctx.reply(
-    `🛰 Exploring ${planet.emoji} *${planet.name}*\n\n` +
-      `${event.text}\n\n` +
-      `✨ XP +${event.xp}\n` +
-      `💳 Credits +${event.credits}`,
-    { parse_mode: "Markdown" }
-  );
-});
-
-// --- /fight – planet-based creatures & difficulty ------------
-
+// /fight – upgraded RPG battle system
 bot.command("fight", async (ctx) => {
-  const user = await getOrCreateUser(ctx.from);
-  const { planet } = getPlanetForUser(user);
+  try {
+    const tgUser = ctx.from;
+    const id = String(tgUser.id);
+    const user = await getOrCreateUser(tgUser);
+    const planet = user.planet || "Aetherion";
 
-  const creature =
-    planet.creatures[Math.floor(Math.random() * planet.creatures.length)];
+    // Roll encounter type
+    const roll = Math.random();
+    let encounterType = "creature";
+    let encounter;
 
-  const cfg = planet.fight;
-  const roll = Math.random();
-  const win = roll < cfg.winChance;
-
-  if (win) {
-    const xpGain = randomInt(cfg.xpMin, cfg.xpMax);
-    const creditsGain = randomInt(cfg.creditsMin, cfg.creditsMax);
-
-    await addXP(user.telegram_id, xpGain);
-    await addCredits(user.telegram_id, creditsGain);
-
-    await ctx.reply(
-      `${creature.emoji} *Battle Victory!*\n\n` +
-        `You defeat a ${creature.name} on ${planet.emoji} *${planet.name}*.\n\n` +
-        `✨ XP +${xpGain}\n` +
-        `💳 Credits +${creditsGain}`,
-      { parse_mode: "Markdown" }
-    );
-  } else {
-    const chipXP = Math.floor((cfg.xpMin || 10) / 3);
-
-    if (chipXP > 0) {
-      await addXP(user.telegram_id, chipXP);
+    if (roll < 0.01) {
+      // 1% chance – World Boss
+      encounterType = "worldBoss";
+      encounter = worldBoss;
+    } else if (roll < 0.15) {
+      // 14% Planet Boss (0.01 - 0.15)
+      encounterType = "planetBoss";
+      encounter = planetBosses.find((b) => b.planet === planet) || planetBosses[0];
+    } else if (roll < 0.40) {
+      // 25% Mini-Boss (0.15 - 0.40)
+      encounterType = "miniboss";
+      encounter = minibosses.find((m) => m.planet === planet) || minibosses[0];
+    } else {
+      // 60% regular creature
+      const pool = creatures.filter((c) => !c.planet || c.planet === planet);
+      encounterType = "creature";
+      encounter = pool[rand(0, pool.length - 1)];
     }
 
-    await ctx.reply(
-      `${creature.emoji} *Battle Lost...*\n\n` +
-        `The ${creature.name} overwhelms you on ${planet.emoji} *${planet.name}*.\n` +
-        (chipXP > 0
-          ? `You barely escape but learn from the encounter.\n✨ XP +${chipXP}`
-          : `You retreat to fight another day.`),
-      { parse_mode: "Markdown" }
-    );
+    let xp = 0;
+    let credits = 0;
+    let title = "";
+    let abilityText = "";
+    let flavor = "";
+
+    if (encounterType === "creature") {
+      xp = rand(encounter.minXP, encounter.maxXP);
+      credits = rand(encounter.minCredits, encounter.maxCredits);
+      title = `🐾 Battle: *${encounter.name}*`;
+      flavor = `You clash with a roaming *${encounter.name}* on *${planet}* and emerge victorious.`;
+    } else if (encounterType === "miniboss") {
+      xp = encounter.xp;
+      credits = encounter.credits;
+      title = `⚠️ Mini-Boss Fight: *${encounter.name}*`;
+      abilityText = `🌀 Special Ability: *${encounter.ability}*`;
+      flavor = `The air crackles as *${encounter.name}* appears on *${planet}*. After a brutal fight, you bring it down.`;
+    } else if (encounterType === "planetBoss") {
+      xp = encounter.xp;
+      credits = encounter.credits;
+      title = `👹 Planet Boss: *${encounter.name}*`;
+      abilityText = `🔥 Ultimate Ability: *${encounter.ability}*`;
+      flavor = `The fate of *${planet}* hangs in the balance as you face *${encounter.name}*. Against all odds, you win.`;
+    } else if (encounterType === "worldBoss") {
+      xp = encounter.xp;
+      credits = encounter.credits;
+      title = `🌌 WORLD BOSS ENCOUNTER!!! *${encounter.name}*`;
+      abilityText = `💥 Cataclysmic Ability: *${encounter.ability}*`;
+      flavor =
+        "Across the stars, alarms blare: the *Astral Leviathan* breaches reality itself. Your victory becomes legend among the Exodus fleet.";
+    }
+
+    await addXP(id, xp);
+    await addCredits(id, credits);
+
+    const replyText = `
+${title}
+
+${flavor}
+${abilityText ? "\n" + abilityText + "\n" : ""}✨ XP Earned: *${xp}*
+💳 Credits Earned: *${credits}*
+🪐 Planet: *${planet}*
+    `;
+
+    ctx.reply(replyText, { parse_mode: "Markdown" });
+  } catch (err) {
+    console.error("Error in /fight:", err);
+    ctx.reply("⚠️ Something went wrong in battle.");
   }
 });
 
-// --- Launch bot ----------------------------------------------
+// ==============================
+//  STARTUP
+// ==============================
 
-bot.launch();
-console.log("🚀 Cosmic Foundry bot is online and exploring the galaxy…");
+(async () => {
+  try {
+    await initDB();
+    await bot.launch();
+    console.log("🚀 Cosmic Foundry bot is online.");
 
-// Graceful shutdown (Railway / Node)
-process.once("SIGINT", () => bot.stop("SIGINT"));
-process.once("SIGTERM", () => bot.stop("SIGTERM"));
+    // graceful shutdown
+    process.once("SIGINT", () => bot.stop("SIGINT"));
+    process.once("SIGTERM", () => bot.stop("SIGTERM"));
+  } catch (err) {
+    console.error("Failed to start bot:", err);
+    process.exit(1);
+  }
+})();
