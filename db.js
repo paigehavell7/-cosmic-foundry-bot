@@ -1,159 +1,87 @@
-// db.js (ESM version)
+import sqlite3 from "sqlite3";
+import { open } from "sqlite";
 
-// --- Simple JSON-based database storage ---
-import fs from "fs";
+export const db = await open({
+  filename: "./database.sqlite",
+  driver: sqlite3.Database,
+});
 
-const DB_FILE = "./database.json";
-
-// --- Load or initialize DB ---
-function loadDB() {
-  try {
-    if (!fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }, null, 2));
-    }
-    return JSON.parse(fs.readFileSync(DB_FILE));
-  } catch (err) {
-    console.error("Error loading DB:", err);
-    return { users: {} };
-  }
+// --- CREATE TABLES ---
+export async function initDB() {
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      telegram_id TEXT PRIMARY KEY,
+      username TEXT,
+      level INTEGER DEFAULT 1,
+      xp INTEGER DEFAULT 0,
+      credits INTEGER DEFAULT 100,
+      planet TEXT DEFAULT 'Aetherion',
+      last_daily INTEGER DEFAULT 0
+    );
+  `);
 }
 
-// --- Save DB ---
-function saveDB(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+// --- HELPERS ---
+
+export async function getUserById(id) {
+  return await db.get("SELECT * FROM users WHERE telegram_id = ?", [id]);
 }
 
-// --- Create or return existing user ---
-export function getOrCreateUser(tgUser) {
-  const db = loadDB();
+export async function getOrCreateUser(telegramUser) {
+  const id = String(telegramUser.id);
+  const name = telegramUser.username || "Traveler";
 
-  if (!db.users[tgUser.id]) {
-    db.users[tgUser.id] = {
-      id: tgUser.id,
-      name: tgUser.username || tgUser.first_name || "Traveler",
-      level: 1,
-      xp: 0,
-      credits: 100,
-      lastDaily: null,
+  let user = await getUserById(id);
 
-      // NEW INVENTORY FIELDS
-      inventory: [],
-      equipped: {
-        weapon: null,
-        armor: null,
-      }
-    };
-    saveDB(db);
+  if (!user) {
+    await db.run(
+      `INSERT INTO users (telegram_id, username) VALUES (?, ?)`,
+      [id, name]
+    );
+    user = await getUserById(id);
   }
 
-  return db.users[tgUser.id];
+  return user;
 }
 
-// --- Add XP ---
-export function addXP(userId, amount) {
-  const db = loadDB();
-  const user = db.users[userId];
-  if (!user) return;
+export async function addXP(id, amount) {
+  await db.run(
+    `UPDATE users SET xp = xp + ? WHERE telegram_id = ?`,
+    [amount, id]
+  );
 
-  user.xp += amount;
+  // Auto-leveling
+  await db.run(
+    `UPDATE users SET level = level + 1, xp = 0 WHERE telegram_id = ? AND xp >= 100`,
+    [id]
+  );
 
-  // Simple level up system
-  const nextLevelXP = user.level * 100;
-  if (user.xp >= nextLevelXP) {
-    user.level++;
-    user.xp -= nextLevelXP;
+  return await getUserById(id);
+}
+
+export async function addCredits(id, amount) {
+  await db.run(
+    `UPDATE users SET credits = credits + ? WHERE telegram_id = ?`,
+    [amount, id]
+  );
+  return await getUserById(id);
+}
+
+export async function claimDaily(id) {
+  const DAILY_AMOUNT = 10;
+  const now = Date.now();
+
+  const user = await getUserById(id);
+
+  // 24 hours = 86400000 ms
+  if (now - user.last_daily < 86400000) {
+    return { success: false, next: 86400000 - (now - user.last_daily) };
   }
 
-  saveDB(db);
-}
+  await db.run(
+    `UPDATE users SET credits = credits + ?, last_daily = ? WHERE telegram_id = ?`,
+    [DAILY_AMOUNT, now, id]
+  );
 
-// --- Add Credits ---
-export function addCredits(userId, amount) {
-  const db = loadDB();
-  const user = db.users[userId];
-  if (!user) return;
-
-  user.credits += amount;
-  saveDB(db);
-}
-
-// --- Daily Reward ---
-export function claimDaily(userId) {
-  const db = loadDB();
-  const user = db.users[userId];
-  if (!user) return false;
-
-  const today = new Date().toDateString();
-
-  if (user.lastDaily === today) {
-    return false;
-  }
-
-  user.lastDaily = today;
-  user.credits += 10;
-
-  saveDB(db);
-  return true;
-}
-
-// --- Get user by Telegram ID ---
-export function getUserById(id) {
-  const db = loadDB();
-  return db.users[id] || null;
-}
-
-////////////////////////////////////////////////////////
-//              NEW INVENTORY SYSTEM
-////////////////////////////////////////////////////////
-
-// --- Add item to inventory ---
-export function addItem(userId, item) {
-  const db = loadDB();
-  const user = db.users[userId];
-  if (!user) return;
-
-  user.inventory.push(item);
-  saveDB(db);
-}
-
-// --- Get a user's inventory ---
-export function getInventory(userId) {
-  const db = loadDB();
-  const user = db.users[userId];
-  return user ? user.inventory : [];
-}
-
-// --- Equip a weapon/armor ---
-export function equipItem(userId, itemName) {
-  const db = loadDB();
-  const user = db.users[userId];
-  if (!user) return { success: false, message: "User not found." };
-
-  const item = user.inventory.find(i => i.name === itemName);
-  if (!item) return { success: false, message: "Item not found in inventory." };
-
-  if (item.type === "Weapon") {
-    user.equipped.weapon = item;
-  } else if (item.type === "Armor") {
-    user.equipped.armor = item;
-  } else {
-    return { success: false, message: "Item cannot be equipped." };
-  }
-
-  saveDB(db);
-  return { success: true, message: `${itemName} equipped.` };
-}
-
-// --- Unequip ---
-export function unequip(userId, slot) {
-  const db = loadDB();
-  const user = db.users[userId];
-
-  if (!user) return { success: false };
-
-  if (slot === "weapon") user.equipped.weapon = null;
-  if (slot === "armor") user.equipped.armor = null;
-
-  saveDB(db);
-  return { success: true };
+  return { success: true, amount: DAILY_AMOUNT };
 }
