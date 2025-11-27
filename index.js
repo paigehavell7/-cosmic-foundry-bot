@@ -1,8 +1,8 @@
 // index.js
-// Cosmic Foundry – Exodus core bot
+// Cosmic Foundry – Crystal Fantasy Edition
 
 import dotenv from "dotenv";
-import { Telegraf } from "telegraf";
+import { Telegraf, Markup } from "telegraf";
 import {
   initDB,
   getOrCreateUser,
@@ -14,212 +14,148 @@ import {
 
 dotenv.config();
 
-// --- Basic safety checks ---
+// ============================
+// Basic safety checks
+// ============================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 if (!BOT_TOKEN) {
-  console.error("❌ BOT_TOKEN is missing from environment variables");
+  console.error("❌ BOT_TOKEN is missing from environment variables.");
   process.exit(1);
 }
 
-// --- Init DB & Bot ---
 const bot = new Telegraf(BOT_TOKEN);
 
-// --- Helper: format profile text ---
+// ============================
+// Helper data & functions
+// ============================
+
+// Planets (flavor only – no DB changes needed)
+const PLANETS = [
+  {
+    name: "Aetherion",
+    emoji: "💠",
+    danger: "★★★☆☆",
+    theme: "crystal storms & light fractals",
+  },
+  {
+    name: "Umbraxis",
+    emoji: "🌑",
+    danger: "★★★★☆",
+    theme: "shadow seas & void beasts",
+  },
+  {
+    name: "Cryolune",
+    emoji: "❄️",
+    danger: "★★☆☆☆",
+    theme: "frozen ruins & aurora spirits",
+  },
+  {
+    name: "Nebulon Veil",
+    emoji: "🌌",
+    danger: "★★★★★",
+    theme: "living nebulae & star leviathans",
+  },
+];
+
+const COMPANIONS = [
+  "Lumi (chaotic glow-blob mage)",
+  "Scrig (hyper gremlin engineer)",
+  "Zeke (sarcastic combat drone)",
+  "a mysterious crystal warden",
+  "a rogue fairy from the last human-suitable world",
+];
+
+const MUSIC_VIBES = [
+  "🎧 Lo-fi starfield beats",
+  "🎸 Neon synth-rock riffs",
+  "🎻 Cosmic fantasy orchestra",
+];
+
+function pickRandom(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 function formatProfile(user) {
+  // user shape expected: id, username, xp, credits, level
+  const name = user.username || "Traveler";
   const level = user.level ?? 1;
   const xp = user.xp ?? 0;
   const credits = user.credits ?? 0;
-  const planet = user.planet || "Aetherion";
 
   return (
-    "🧑‍🚀 *Traveler Profile*\n\n" +
-    `🪪 ID: \`${user.telegram_id}\`\n` +
-    `📛 Name: *${user.username || "Unknown"}*\n` +
+    "🧭 *Traveler Profile*\n" +
+    `🆔 ID: \`${user.id}\`\n` +
+    `👤 Name: *${name}*\n` +
     `⭐ Level: *${level}*\n` +
-    `📊 XP: *${xp}*\n` +
-    `💳 Credits: *${credits}*\n` +
-    `🪐 Current Planet: *${planet}*`
+    `📈 XP: *${xp}*\n` +
+    `💳 Credits: *${credits}*\n`
   );
 }
 
-// --- Helper: random int ---
-function rand(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+// Quick XP → level flavor (no DB change – just visual)
+function getLevelTitle(level) {
+  if (level >= 25) return "Mythic Riftwalker";
+  if (level >= 18) return "Crystal Paragon";
+  if (level >= 12) return "Starlight Vanguard";
+  if (level >= 7) return "Aether Explorer";
+  if (level >= 3) return "Rookie Drifter";
+  return "Lost Wanderer";
 }
 
-// ==============================
-//  CREATURES & BOSSES
-// ==============================
+// ============================
+// /start & /help
+// ============================
 
-// Normal creatures (per planet)
-const creatures = [
-  // generic
-  {
-    name: "Prism Stalker",
-    minXP: 5,
-    maxXP: 15,
-    minCredits: 3,
-    maxCredits: 8,
-  },
-
-  // by planet
-  {
-    name: "Shardcrawler",
-    planet: "Aetherion",
-    minXP: 10,
-    maxXP: 18,
-    minCredits: 5,
-    maxCredits: 10,
-  },
-  {
-    name: "Frostshade Beast",
-    planet: "Cryolune",
-    minXP: 12,
-    maxXP: 20,
-    minCredits: 7,
-    maxCredits: 12,
-  },
-  {
-    name: "Umbral Warg",
-    planet: "Umbrava",
-    minXP: 14,
-    maxXP: 22,
-    minCredits: 9,
-    maxCredits: 14,
-  },
-  {
-    name: "Rustfiend Ghoul",
-    planet: "Ruinfall",
-    minXP: 15,
-    maxXP: 25,
-    minCredits: 10,
-    maxCredits: 15,
-  },
-];
-
-// Mini-bosses (rare)
-const minibosses = [
-  {
-    name: "Crystal Howler",
-    planet: "Aetherion",
-    ability: "Shard Burst",
-    xp: 35,
-    credits: 20,
-  },
-  {
-    name: "Frost Revenant",
-    planet: "Cryolune",
-    ability: "Freezing Gaze",
-    xp: 40,
-    credits: 25,
-  },
-  {
-    name: "Umbra Reaper",
-    planet: "Umbrava",
-    ability: "Shadow Slice",
-    xp: 45,
-    credits: 30,
-  },
-  {
-    name: "Iron Rot Ogre",
-    planet: "Ruinfall",
-    ability: "Corrosion Smash",
-    xp: 50,
-    credits: 35,
-  },
-];
-
-// Planet bosses
-const planetBosses = [
-  {
-    name: "Aetherion Wyrm",
-    planet: "Aetherion",
-    ability: "Prismatic Breath",
-    xp: 120,
-    credits: 80,
-  },
-  {
-    name: "Cryolord Titan",
-    planet: "Cryolune",
-    ability: "Absolute Zero",
-    xp: 130,
-    credits: 90,
-  },
-  {
-    name: "Umbral Devourer",
-    planet: "Umbrava",
-    ability: "Soul Rend",
-    xp: 150,
-    credits: 100,
-  },
-  {
-    name: "Ruinfall Colossus",
-    planet: "Ruinfall",
-    ability: "Decay Pulse",
-    xp: 160,
-    credits: 120,
-  },
-];
-
-// Ultra-rare world boss
-const worldBoss = {
-  name: "Astral Leviathan",
-  ability: "Cosmic Rupture",
-  xp: 300,
-  credits: 250,
-};
-
-// ==============================
-//  COMMANDS
-// ==============================
-
-// /start – intro story
 bot.start(async (ctx) => {
-  try {
-    await getOrCreateUser(ctx.from);
+  const tgUser = ctx.from;
+  await getOrCreateUser(tgUser);
 
-    const text = `
-🛰 *Welcome to Cosmic Foundry: Exodus* 🌌
+  const planet = pickRandom(PLANETS);
+  const companion = pickRandom(COMPANIONS);
+  const vibe = pickRandom(MUSIC_VIBES);
 
-Your home planet has fallen. You and your crew now travel across dangerous alien worlds, searching for a new home and fighting terrifying creatures.
+  const text = `
+🌌 *Welcome to Cosmic Foundry: Exodus – Crystal Fantasy Edition* 🌌
 
-✨ You begin your journey with *100 credits*.
-💰 You can claim *10 daily credits* with /daily.
+Your home world is gone.  
+You and your crew drift through deep space, chasing rumors of a *new human-suitable world* guarded by ancient magic and vicious alien beasts.
+
+You wake up on *${planet.emoji} ${planet.name}* – a world of ${planet.theme}.  
+At your side: *${companion}*.
+
+🎵 Background vibe: _${vibe}_
 
 Use these commands to begin:
 • /profile – view your stats
-• /daily – claim your daily reward
-• /explore – quick adventure for XP & credits
-• /fight – battle vs creatures & bosses
-• /help – show all commands
+• /daily – claim your daily crystal stipend
+• /explore – risky adventures for XP & credits
+• /fight – battles vs creatures & mini-bosses
+• /help – show all commands again
+`;
 
-Your journey starts now, Traveler. ✨
-  `;
-
-    await ctx.reply(text, { parse_mode: "Markdown" });
-  } catch (err) {
-    console.error("Error in /start:", err);
-    ctx.reply("⚠️ Something went wrong starting your journey.");
-  }
+  await ctx.reply(text, { parse_mode: "Markdown" });
 });
 
-// /help – show commands
-bot.command("help", (ctx) => {
+// Short help
+bot.command("help", async (ctx) => {
   const text = `
-🛰 *Cosmic Foundry Commands*
+🛰 *Command Deck*
 
-/start – story intro & basic info
-/profile – view your stats
-/daily – claim your daily credits
-/explore – fast XP & credits
-/fight – battle creatures & bosses
-/help – show this help
-  `;
-  ctx.reply(text, { parse_mode: "Markdown" });
+• /profile – your level, XP, credits
+• /daily – free daily reward (once per day)
+• /explore – story-style adventure with rewards
+• /fight – combat encounter vs creatures or bosses
+• /lore – random bit of Exodus story
+• /scan – quick flavor ping about a random planet
+`;
+  await ctx.reply(text, { parse_mode: "Markdown" });
 });
 
-// /profile – show stats
+// ============================
+// /profile
+// ============================
+
 bot.command("profile", async (ctx) => {
   try {
     const id = String(ctx.from.id);
@@ -227,180 +163,239 @@ bot.command("profile", async (ctx) => {
     if (!user) {
       user = await getOrCreateUser(ctx.from);
     }
-    await ctx.reply(formatProfile(user), { parse_mode: "Markdown" });
+
+    const levelTitle = getLevelTitle(user.level ?? 1);
+    const baseProfile = formatProfile(user);
+
+    const extra = `🏷 Title: *${levelTitle}*\n🎭 Companion: *${pickRandom(
+      COMPANIONS
+    )}*\n`;
+
+    await ctx.reply(baseProfile + "\n" + extra, {
+      parse_mode: "Markdown",
+    });
   } catch (err) {
     console.error("Error in /profile:", err);
-    ctx.reply("⚠️ Couldn't load your profile.");
+    await ctx.reply("⚠️ Couldn't load your profile. Try again in a moment.");
   }
 });
 
-// /daily – daily credits (DB handles cooldown)
+// ============================
+// /daily – crystal stipend
+// ============================
+
 bot.command("daily", async (ctx) => {
   try {
     const id = String(ctx.from.id);
     const result = await claimDaily(id);
 
     if (!result || result.ok === false) {
-      const hours = result?.hoursLeft ?? 0;
-      ctx.reply(`⏳ You've already claimed your daily credits.\nCome back in ~${hours.toFixed(1)} hours.`);
+      const hours =
+        (result && result.hoursLeft != null)
+          ? result.hoursLeft
+          : "a few";
+      await ctx.reply(
+        `⏳ You've already claimed your daily crystals.\nCome back in ~${hours} hour(s).`
+      );
       return;
     }
 
-    ctx.reply(
-      `🎁 You claimed *${result.credits}* daily credits!\n💳 New balance: *${result.totalCredits}*`,
-      { parse_mode: "Markdown" }
-    );
+    const credits = result.credits ?? 0;
+
+    const text = `
+🎁 *Daily Crystal Stipend*
+
+You meditate at the Celestial Foundry and receive *${credits}* credits in shimmering shards.
+
+✨ New balance will show in /profile.
+`;
+    await ctx.reply(text, { parse_mode: "Markdown" });
   } catch (err) {
     console.error("Error in /daily:", err);
-    ctx.reply("⚠️ Something went wrong with your daily claim.");
+    await ctx.reply(
+      "⚠️ Something went wrong while claiming your daily reward."
+    );
   }
 });
 
-// /explore – simple adventure with flavor outcomes
+// ============================
+// /explore – story adventure
+// ============================
+
 bot.command("explore", async (ctx) => {
   try {
     const tgUser = ctx.from;
     const user = await getOrCreateUser(tgUser);
-    const planet = user.planet || "Aetherion";
+    const planet = pickRandom(PLANETS);
 
-    const outcomes = [
+    const events = [
       {
-        text: `You explore a shattered crystal canyon on ${planet}. Shard-light dances around your ship.`,
-        xp: 15,
+        text: `You follow a trail of *singing crystals* across ${planet.emoji} *${planet.name}*. One cracks open, revealing a map fragment.`,
+        xp: 30,
+        credits: 15,
+      },
+      {
+        text: `A storm of glittering shards slams into your hull. You barely stabilize the ship and salvage the storm’s residue.`,
+        xp: 40,
         credits: 10,
       },
       {
-        text: `You discover a hidden ice cavern on ${planet} filled with ancient alien tech.`,
-        xp: 20,
-        credits: 8,
+        text: `You discover ruins where *fairies and elves* once bargained with alien warlords. A hidden chamber still hums with power.`,
+        xp: 50,
+        credits: 25,
       },
       {
-        text: `You drift through Aether storms above ${planet}, mapping safe routes for future travelers.`,
-        xp: 25,
-        credits: 5,
+        text: `An eerie choir echoes from a floating forest. Lumi steals a glowing fruit. Scrig swears it’s alive. You run.`,
+        xp: 35,
+        credits: 18,
       },
       {
-        text: `You scout a corrupted ridge on ${planet}, tagging dangerous zones for the Exodus fleet.`,
-        xp: 30,
-        credits: 12,
+        text: `You help a stranded caravan of crystal nomads. They pay you in mystic shards and a blessing for future battles.`,
+        xp: 45,
+        credits: 22,
       },
     ];
 
-    const outcome = outcomes[rand(0, outcomes.length - 1)];
-    const id = String(tgUser.id);
+    const outcome = pickRandom(events);
+    const id = String(user.id);
 
     await addXP(id, outcome.xp);
     await addCredits(id, outcome.credits);
 
     const replyText = `
-🛰 *Exploring* 🪐 *${planet}*
-
+🧭 *Exploring ${planet.emoji} ${planet.name}*
 ${outcome.text}
 
 ✨ XP +${outcome.xp}
 💳 Credits +${outcome.credits}
-    `;
-    ctx.reply(replyText, { parse_mode: "Markdown" });
+Danger level: *${planet.danger}*
+`;
+
+    await ctx.reply(replyText, { parse_mode: "Markdown" });
   } catch (err) {
     console.error("Error in /explore:", err);
-    ctx.reply("⚠️ Something went wrong while exploring.");
+    await ctx.reply("⚠️ Something went wrong while exploring.");
   }
 });
 
-// /fight – upgraded RPG battle system
+// ============================
+// /fight – RPG combat
+// ============================
+
 bot.command("fight", async (ctx) => {
   try {
     const tgUser = ctx.from;
-    const id = String(tgUser.id);
     const user = await getOrCreateUser(tgUser);
-    const planet = user.planet || "Aetherion";
+    const id = String(user.id);
 
-    // Roll encounter type
+    const planet = pickRandom(PLANETS);
+
+    // Encounter roll
     const roll = Math.random();
     let encounterType = "creature";
-    let encounter;
-
-    if (roll < 0.01) {
-      // 1% chance – World Boss
-      encounterType = "worldBoss";
-      encounter = worldBoss;
-    } else if (roll < 0.15) {
-      // 14% Planet Boss (0.01 - 0.15)
-      encounterType = "planetBoss";
-      encounter = planetBosses.find((b) => b.planet === planet) || planetBosses[0];
-    } else if (roll < 0.40) {
-      // 25% Mini-Boss (0.15 - 0.40)
-      encounterType = "miniboss";
-      encounter = minibosses.find((m) => m.planet === planet) || minibosses[0];
-    } else {
-      // 60% regular creature
-      const pool = creatures.filter((c) => !c.planet || c.planet === planet);
-      encounterType = "creature";
-      encounter = pool[rand(0, pool.length - 1)];
+    if (roll < 0.05) {
+      encounterType = "world_boss";
+    } else if (roll < 0.25) {
+      encounterType = "elite";
     }
 
-    let xp = 0;
-    let credits = 0;
-    let title = "";
-    let abilityText = "";
-    let flavor = "";
+    let enemy;
+    let xp;
+    let credits;
+    let abilityText;
 
-    if (encounterType === "creature") {
-      xp = rand(encounter.minXP, encounter.maxXP);
-      credits = rand(encounter.minCredits, encounter.maxCredits);
-      title = `🐾 Battle: *${encounter.name}*`;
-      flavor = `You clash with a roaming *${encounter.name}* on *${planet}* and emerge victorious.`;
-    } else if (encounterType === "miniboss") {
-      xp = encounter.xp;
-      credits = encounter.credits;
-      title = `⚠️ Mini-Boss Fight: *${encounter.name}*`;
-      abilityText = `🌀 Special Ability: *${encounter.ability}*`;
-      flavor = `The air crackles as *${encounter.name}* appears on *${planet}*. After a brutal fight, you bring it down.`;
-    } else if (encounterType === "planetBoss") {
-      xp = encounter.xp;
-      credits = encounter.credits;
-      title = `👹 Planet Boss: *${encounter.name}*`;
-      abilityText = `🔥 Ultimate Ability: *${encounter.ability}*`;
-      flavor = `The fate of *${planet}* hangs in the balance as you face *${encounter.name}*. Against all odds, you win.`;
-    } else if (encounterType === "worldBoss") {
-      xp = encounter.xp;
-      credits = encounter.credits;
-      title = `🌌 WORLD BOSS ENCOUNTER!!! *${encounter.name}*`;
-      abilityText = `💥 Cataclysmic Ability: *${encounter.ability}*`;
-      flavor =
-        "Across the stars, alarms blare: the *Astral Leviathan* breaches reality itself. Your victory becomes legend among the Exodus fleet.";
+    if (encounterType === "world_boss") {
+      enemy = "🌋 Rift-Titan of " + planet.name;
+      xp = 120;
+      credits = 80;
+      abilityText =
+        "It warps reality with every step, but your crew pulls off an impossible win.";
+    } else if (encounterType === "elite") {
+      enemy = "💀 Crystal Warlord";
+      xp = 70;
+      credits = 40;
+      abilityText =
+        "Its blade hums with stolen memories, but Zeke lands a perfect shot.";
+    } else {
+      const creatures = [
+        "Shardcrawler",
+        "Void Howler",
+        "Nebula Serpent",
+        "Aether Ghoul",
+        "Runefang Beast",
+      ];
+      enemy = pickRandom(creatures);
+      xp = 30 + Math.floor(Math.random() * 15);
+      credits = 15 + Math.floor(Math.random() * 10);
+      abilityText = "You coordinate with your companions and strike at its weak spots.";
     }
 
     await addXP(id, xp);
     await addCredits(id, credits);
 
     const replyText = `
-${title}
+⚔️ *Battle Report*
 
-${flavor}
-${abilityText ? "\n" + abilityText + "\n" : ""}✨ XP Earned: *${xp}*
+You engage *${enemy}* on ${planet.emoji} *${planet.name}*.
+${abilityText}
+
+✨ XP Earned: *${xp}*
 💳 Credits Earned: *${credits}*
-🪐 Planet: *${planet}*
-    `;
+`;
 
-    ctx.reply(replyText, { parse_mode: "Markdown" });
+    await ctx.reply(replyText, { parse_mode: "Markdown" });
   } catch (err) {
     console.error("Error in /fight:", err);
-    ctx.reply("⚠️ Something went wrong in battle.");
+    await ctx.reply("⚠️ Something went wrong in battle.");
   }
 });
 
-// ==============================
-//  STARTUP
-// ==============================
+// ============================
+// /lore – random story bit
+// ============================
+
+bot.command("lore", async (ctx) => {
+  const bits = [
+    "Legends say the final human-suitable world hides behind a curtain of living aurora.",
+    "Some say Lumi was once a star fragment that refused to stop dreaming.",
+    "Old captains whisper that Zeke was built from scavenged war-tech and a cursed fairy core.",
+    "The Foundry isn’t just a place – it’s a memory of every world that ever died.",
+    "On some planets, the monsters are kinder than the survivors who fled there.",
+  ];
+
+  const text = `📜 *Exodus Lore*\n\n_${pickRandom(bits)}_`;
+  await ctx.reply(text, { parse_mode: "Markdown" });
+});
+
+// ============================
+// /scan – quick planet ping
+// ============================
+
+bot.command("scan", async (ctx) => {
+  const planet = pickRandom(PLANETS);
+  const text = `
+🔎 *Long-range Scan*
+
+Target: ${planet.emoji} *${planet.name}*
+Danger: ${planet.danger}
+Notes: ${planet.theme}
+`;
+  await ctx.reply(text, { parse_mode: "Markdown" });
+});
+
+// ============================
+// Startup & graceful shutdown
+// ============================
 
 (async () => {
   try {
     await initDB();
     await bot.launch();
-    console.log("🚀 Cosmic Foundry bot is online.");
+    console.log(
+      "🚀 Cosmic Foundry bot is online (Crystal Fantasy edition)"
+    );
 
-    // graceful shutdown
+    // Graceful stop for Railway
     process.once("SIGINT", () => bot.stop("SIGINT"));
     process.once("SIGTERM", () => bot.stop("SIGTERM"));
   } catch (err) {
